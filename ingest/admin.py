@@ -1,0 +1,179 @@
+# ingest/admin.py
+from django.contrib import admin, messages
+from django.db.models.functions import Cast
+from django.db.models import TextField
+from import_export import resources
+from import_export.admin import ImportExportModelAdmin
+from django.urls import path
+from django.shortcuts import redirect
+from django.utils.html import format_html
+
+from .models import Workbook, Dataset, DatasetRow, DataTemplate, ColumnMapping
+from analytics.tasks import import_excel_task
+
+
+# === DataTemplate & ColumnMapping ===
+
+class ColumnMappingInline(admin.TabularInline):
+    model = ColumnMapping
+    extra = 1
+    fields = ("canonical_key", "aliases", "dtype", "required")
+    show_change_link = True
+
+@admin.register(DataTemplate)
+class DataTemplateAdmin(admin.ModelAdmin):
+    list_display = ("name", "mappings_count", "required_count", "created_at")
+    search_fields = ("name",)
+    inlines = [ColumnMappingInline]
+
+    @admin.display(description="Всего полей")
+    def mappings_count(self, obj):
+        return obj.mappings.count()
+
+    @admin.display(description="Обязательных")
+    def required_count(self, obj):
+        return obj.mappings.filter(required=True).count()
+
+
+# ---------- EXPORT ----------
+class DatasetRowResource(resources.ModelResource):
+    """
+    Экспортируем плоско: id, dataset_id и JSON data.
+    """
+    class Meta:
+        model = DatasetRow
+        fields = ("id", "dataset__id", "data",)
+        export_order = ("id", "dataset__id", "data",)
+
+
+@admin.register(DatasetRow)
+class DatasetRowAdmin(ImportExportModelAdmin):
+    resource_classes = [DatasetRowResource]
+    list_display = ("id", "dataset", "imported_at", "short_data")
+    list_filter = ("dataset",)
+    date_hierarchy = "imported_at"
+    # search_fields = ("data",)  # может работать нестабильно; сделаем кастомно
+
+    @admin.display(description="data (short)")
+    def short_data(self, obj):
+        s = str(obj.data)[:120].replace("{", "").replace("}", "")
+        return s + ("..." if len(str(obj.data)) > 120 else "")
+
+    # Кастомный поиск по JSON как тексту
+    def get_search_results(self, request, queryset, search_term):
+        qs, use_distinct = super().get_search_results(request, queryset, search_term)
+        if search_term:
+            qs = qs.annotate(data_str=Cast("data", output_field=TextField())).filter(
+                data_str__icontains=search_term
+            )
+        return qs, use_distinct
+
+
+@admin.register(Dataset)
+class DatasetAdmin(admin.ModelAdmin):
+    list_display = ("name", "id", "period_date", "created_at", "rows_count")
+    list_filter = ("period_date", )
+    date_hierarchy = "period_date"
+    search_fields = ("name",)
+    fields = ("name", "sheet", "period_date", "inferred_schema", "primary_key", "meta")
+
+    def rows_count(self, obj):
+
+        return obj.rows.count()
+
+
+@admin.action(description="Импортировать выбранные таблицы")
+def import_selected_workbooks(modeladmin, request, queryset):
+    scheduled, skipped = 0, 0
+    # заранее подгружаем template, чтобы не дёргать БД в цикле
+    for wb in queryset.select_related("template"):
+        # защита от пустого файла / параллельного импорта
+        if not getattr(wb, "file", None) or not wb.file:
+            skipped += 1
+            continue
+        if getattr(wb, "status", "") == "importing":
+            skipped += 1
+            continue
+
+        import_excel_task.delay(
+            workbook_id=wb.id,
+            sheet_name=wb.sheets or "",
+            bulk_size=5000,  # можно поменять при желании
+            template=(wb.template.name if wb.template_id else ""),
+            header_row=(wb.header_row or 0),
+            auto_template=bool(wb.auto_template),
+        )
+        scheduled += 1
+
+    if scheduled:
+        modeladmin.message_user(
+            request,
+            f"Импорт запущен для {scheduled} таблиц(ы).",
+            level=messages.SUCCESS,
+        )
+    if skipped:
+        modeladmin.message_user(
+            request,
+            f"Пропущено {skipped}: нет файла или статус 'importing'.",
+            level=messages.WARNING,
+        )
+
+
+# ---------- UPLOAD + IMPORT ----------
+@admin.register(Workbook)
+class WorkbookAdmin(admin.ModelAdmin):
+    list_display = ("id", "filename", "status", "template", "auto_template", "sha256_short", "uploaded_at")
+    list_filter = ("status", "template", "auto_template")
+    search_fields = ("filename", "sha256")
+    fields = (
+        "file", "filename", "status", "sha256",
+        "template", "auto_template", "sheets", "header_row",
+    )
+    readonly_fields = ("status", "sha256")
+    actions = [import_selected_workbooks]
+
+    def sha256_short(self, obj):
+        return (obj.sha256 or "")[:12]
+    sha256_short.short_description = "SHA256"
+
+    # Кнопка «Импортировать» на change-странице
+    def change_view(self, request, object_id, form_url="", extra_context=None):
+        extra_context = extra_context or {}
+        extra_context["import_button"] = True
+        return super().change_view(request, object_id, form_url, extra_context=extra_context)
+
+    def get_urls(self):
+        urls = super().get_urls()
+        custom = [
+            path("<int:pk>/import/", self.admin_site.admin_view(self.import_view), name="workbook-import"),
+        ]
+        return custom + urls
+
+    def import_view(self, request, pk):
+        wb = self.get_object(request, pk)
+        if not wb:
+            self.message_user(request, "Workbook не найден", level=messages.ERROR)
+            return redirect("..")
+
+        # берём настройки из модели (и из query-параметров, если переданы явно)
+        sheet_name = request.GET.get("sheet", "") or (wb.sheet or "")
+        header_row = request.GET.get("header_row")
+        header_row = int(header_row) if header_row not in (None, "",) else (wb.header_row or 0)
+
+        template = ""
+        if wb.template_id:
+            # можно передать имя или id — наша команда поддерживает оба варианта
+            template = wb.template.name
+
+        auto_template = wb.auto_template
+        # запустить Celery-таск
+        import_excel_task.delay(
+            workbook_id=wb.id,
+            sheet_name=sheet_name,
+            bulk_size=5000,
+            template=template,
+            header_row=header_row or 0,
+            auto_template=auto_template,
+        )
+        self.message_user(request, "Импорт запущен", level=messages.SUCCESS)
+        return redirect("..")

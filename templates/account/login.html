@@ -1,0 +1,38 @@
+{% extends "base_auth.html" %}
+{% load i18n account socialaccount %}
+
+{% block title %}Войти{% endblock %}
+{% block content %}
+<form method="post" action="{% url 'account_login' %}" novalidate>
+  {% csrf_token %}
+  <div class="mb-3">
+    <label class="form-label">Email</label>
+    {{ form.login }}
+    {% if form.login.errors %}<div class="text-danger small">{{ form.login.errors|striptags }}</div>{% endif %}
+  </div>
+  <div class="mb-2">
+    <label class="form-label">Пароль</label>
+    {{ form.password }}
+    {% if form.password.errors %}<div class="text-danger small">{{ form.password.errors|striptags }}</div>{% endif %}
+  </div>
+  <div class="d-flex justify-content-between align-items-center mb-3">
+    <div class="form-check">
+      {{ form.remember }} <label class="form-check-label">Запомнить меня</label>
+    </div>
+    <a href="{% url 'account_reset_password' %}" class="small">Забыли пароль?</a>
+  </div>
+  <button class="btn btn-primary w-100" type="submit">Войти</button>
+</form>
+
+{% if socialaccount_providers %}
+  <div class="text-center text-muted my-3">или</div>
+  <a class="btn btn-outline-secondary w-100"
+     href="{% provider_login_url 'google' process='login' %}">
+     Войти через Google
+  </a>
+{% endif %}
+
+<!--<div class="text-center mt-3 small">-->
+<!--  Нет аккаунта? <a href="{% url 'account_signup' %}">Зарегистрируйтесь</a>-->
+<!--</div>-->
+{% endblock %}

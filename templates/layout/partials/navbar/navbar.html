@@ -1,0 +1,113 @@
+{% load i18n %}
+{% load static %}
+{% load theme %}
+{% load account %} {# user_display, email helpers (allauth) #}
+
+<nav class="layout-navbar {{ container_class }} navbar navbar-expand-xl navbar-detached align-items-center bg-navbar-theme"
+     id="layout-navbar">
+
+  {% if not navbar_hide_toggle %}
+  <div class="layout-menu-toggle navbar-nav align-items-xl-center me-4 me-xl-0 d-xl-none">
+    <a class="nav-item nav-link px-0 me-xl-4" href="javascript:void(0)">
+      <i class="bx bx-menu bx-md"></i>
+    </a>
+  </div>
+  {% endif %}
+
+  <div class="navbar-nav-right d-flex align-items-center" id="navbar-collapse">
+
+    <div class="navbar-nav align-items-center">
+      <div class="nav-item d-flex align-items-cen">
+        <h5 class="m-0">ANALYTICS.MIIT.UZ</h5>
+      </div>
+    </div>
+    <div class="navbar-nav align-items-center ms-auto">
+      <div class="nav-item d-flex align-items-cen">
+        <h5 class="m-0">Аналитический дашборд</h5>
+      </div>
+    </div>
+
+    <ul class="navbar-nav flex-row align-items-center ms-auto">
+
+      {# ---- Гость: Войти / Регистрация ---- #}
+      {% if not request.user.is_authenticated %}
+        <li class="nav-item me-2">
+          <a class="btn btn-outline-primary" href="{% url 'account_login' %}">
+            {% trans 'Войти' %}
+          </a>
+        </li>
+<!--        <li class="nav-item">-->
+<!--          <a class="btn btn-primary" href="{% url 'account_signup' %}">-->
+<!--            {% trans 'Зарегистрироваться' %}-->
+<!--          </a>-->
+<!--        </li>-->
+
+      {% else %}
+      {# ---- Пользователь: аватар + меню ---- #}
+      <li class="nav-item navbar-dropdown dropdown-user dropdown">
+        <a class="nav-link dropdown-toggle hide-arrow p-0" href="#" data-bs-toggle="dropdown" aria-expanded="false">
+          <div class="avatar avatar-online">
+            <img src="{% static 'img/avatars/user.jpg' %}" alt="" class="w-px-40 h-auto rounded-circle">
+          </div>
+        </a>
+
+        <ul class="dropdown-menu dropdown-menu-end">
+          <li class="px-3 py-2">
+            <div class="d-flex">
+              <div class="flex-shrink-0 me-3">
+                <div class="avatar avatar-online">
+                  <img src="{% static 'img/avatars/user.jpg' %}" alt="" class="w-px-40 h-auto rounded-circle">
+                </div>
+              </div>
+              <div class="flex-grow-1">
+                <h6 class="mb-0">
+                  {{ request.user.get_full_name|default:request.user.get_username }}
+                </h6>
+                <div class="small text-muted">
+                  {{ request.user.email }}
+                </div>
+                <div class="mt-1">
+                  {# бейдж статуса #}
+                  {% if request.user.is_superuser %}
+                    <span class="badge bg-danger">Admin</span>
+                  {% elif request.user.is_staff %}
+                    <span class="badge bg-warning text-dark">Staff</span>
+                  {% else %}
+                    <span class="badge bg-secondary">User</span>
+                  {% endif %}
+                </div>
+              </div>
+            </div>
+          </li>
+
+          <li><div class="dropdown-divider my-1"></div></li>
+
+          <li>
+            <a class="dropdown-item" href="#!">
+              <i class="bx bx-user bx-md me-3"></i><span>{% trans 'Профиль' %}</span>
+            </a>
+          </li>
+          <li>
+            <a class="dropdown-item" href="#!">
+              <i class="bx bx-cog bx-md me-3"></i><span>{% trans 'Настройки' %}</span>
+            </a>
+          </li>
+
+          <li><div class="dropdown-divider my-1"></div></li>
+
+          <li>
+            {# Выйти через allauth #}
+            <form method="post" action="{% url 'account_logout' %}">
+              {% csrf_token %}
+              <button type="submit" class="dropdown-item d-flex align-items-center">
+                <i class="bx bx-power-off bx-md me-3"></i>
+                <span>{% trans 'Выйти' %}</span>
+              </button>
+            </form>
+          </li>
+        </ul>
+      </li>
+      {% endif %}
+    </ul>
+  </div>
+</nav>

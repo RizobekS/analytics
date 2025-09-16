@@ -1,0 +1,85 @@
+<aside id="layout-menu" class="layout-menu menu-vertical menu bg-menu-theme">
+  <!-- ! Hide app brand if navbar-full -->
+  <div class="ms-4 mt-4 mb-5 demo">
+    <a href="{% url 'dashboard-page' %}" class="app-brand-link">
+      <span class="app-brand-logo demo">
+        {% include 'partials/logo.html' with withbg="#696cff" %}
+      </span>
+      <span class="demo menu-text fs-10" style="font-size: 12px;">O'ZBEKISTON RESPUBLIKASI<br>INVESTITSIYALAR, SANOAT<br>VA SAVDO VAZIRLIGI</span>
+    </a>
+
+    <a href="javascript:void(0);" class="layout-menu-toggle menu-link text-large ms-auto d-block d-xl-none">
+      <i class="bx bx-chevron-left bx-sm d-flex align-items-center justify-content-center"></i>
+    </a>
+  </div>
+
+
+  <div class="menu-inner-shadow"></div>
+
+  <ul class="menu-inner py-1">
+
+    <li class="menu-item {% if '/table/' in request.path %}active{% endif %}">
+      <a href="{% url 'miit-grp' %}" class="menu-link">
+        <i class="menu-icon tf-icons bx bx-collection"></i>
+        <div class="text-truncate">Главная страница</div>
+      </a>
+    </li>
+    <li class="menu-item {% if '/dashboard/' in request.path %}active{% endif %}">
+      <a href="{% url 'dashboard-page' %}" class="menu-link">
+        <div class="text-truncate" data-i18n="Конструктор">Конструктор</div>
+      </a>
+    </li>
+
+<!--    &lt;!&ndash; Account &ndash;&gt;-->
+<!--    <li class="menu-item {% if '/account_settings/' in request.path %}active open{% endif %}">-->
+<!--      <a href="javascript:void(0);" class="menu-link menu-toggle">-->
+<!--        <i class="menu-icon tf-icons bx bx-dock-top"></i>-->
+<!--        <div class="text-truncate" data-i18n="Account Settings">Account Settings</div>-->
+<!--      </a>-->
+<!--      <ul class="menu-sub">-->
+<!--        <li class="menu-item {% if '/account/' in request.path %}active{% endif %}">-->
+<!--         {# <a href="{% url 'pages-account-settings-account' %}" class="menu-link"> #}-->
+<!--            <div class="text-truncate" data-i18n="Account">Account</div>-->
+<!--          </a>-->
+<!--        </li>-->
+<!--        <li class="menu-item {% if '/notifications/' in request.path %}active{% endif %}">-->
+<!--        {#  <a href="{% url 'pages-account-settings-notifications' %}" class="menu-link"> #}-->
+<!--            <div class="text-truncate" data-i18n="Notifications">Notifications</div>-->
+<!--          </a>-->
+<!--        </li>-->
+<!--      </ul>-->
+<!--    </li>-->
+<!--    &lt;!&ndash; Auth &ndash;&gt;-->
+<!--    <li class="menu-item {% if '/auth/' in request.path %}active open{% endif %}">-->
+<!--      <a href="javascript:void(0);" class="menu-link menu-toggle">-->
+<!--        <i class="menu-icon tf-icons bx bx-lock-open-alt"></i>-->
+<!--        <div class="text-truncate" data-i18n="Authentications">Authentications</div>-->
+<!--      </a>-->
+<!--      <ul class="menu-sub">-->
+<!--        <li class="menu-item {% if '/login/' in request.path %}active{% endif %}">-->
+<!--        {#  <a href="{% url 'auth-login-basic' %}" class="menu-link" target="_blank"> #}-->
+<!--            <div class="text-truncate" data-i18n="Login">Login</div>-->
+<!--          </a>-->
+<!--        </li>-->
+<!--        <li class="menu-item {% if '/register/' in request.path %}active{% endif %}">-->
+<!--        {#  <a href="{% url 'auth-register-basic' %}" class="menu-link" target="_blank"> #}-->
+<!--            <div class="text-truncate" data-i18n="Register">Register</div>-->
+<!--          </a>-->
+<!--        </li>-->
+<!--        <li class="menu-item {% if '/forgot_password/' in request.path %}active{% endif %}">-->
+<!--         {# <a href="{% url 'auth-forgot-password-basic' %}" class="menu-link" target="_blank"> #}-->
+<!--            <div class="text-truncate" data-i18n="Frogot Password">Frogot Password</div>-->
+<!--          </a>-->
+<!--        </li>-->
+<!--      </ul>-->
+<!--    </li>-->
+
+<!--    <li class="menu-header small text-uppercase">-->
+<!--      <span class="menu-header-text">Components</span>-->
+<!--    </li>-->
+
+
+  </ul>
+
+
+</aside>

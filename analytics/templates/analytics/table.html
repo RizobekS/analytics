@@ -1,0 +1,144 @@
+{% extends "layout/master.html" %}
+
+{% block layout %}
+<style>
+  .card { border-radius: 1rem; }
+  .chart-box{ height: 420px; }
+</style>
+
+<div class="container-xxl py-3">
+  <div class="d-flex align-items-center justify-content-between mb-3">
+    <h4 class="mb-0">
+      Таблица: {{ dataset.name|default:"Dataset #" }} (id={{ dataset_id }})
+    </h4>
+    <a class="btn btn-outline-primary" href="{% url 'dashboard-page' %}">Открыть конструктор</a>
+  </div>
+
+  <!-- список графиков -->
+  <div id="ux-charts" class="vstack gap-3"></div>
+</div>
+{% endblock layout %}
+
+{% block vendor_js %}
+<script src="https://cdn.jsdelivr.net/npm/echarts/dist/echarts.min.js" defer></script>
+<script>
+  const DATASET_ID = {{ dataset_id|default:"null" }};
+  const __charts = {};
+
+  function getChart(id){
+    const el = document.getElementById(id);
+    if (!el) return null;
+    const prev = echarts.getInstanceByDom(el);
+    if (prev) prev.dispose();
+    const inst = echarts.init(el);
+    window.addEventListener('resize', () => inst.resize());
+    return inst;
+  }
+
+  async function fetchJSON(url, opts={}){
+    const resp = await fetch(url, { credentials:'same-origin', headers:{'Accept':'application/json'}, ...opts });
+    const isJSON = (resp.headers.get('content-type')||'').includes('application/json');
+    if (!resp.ok) throw new Error((isJSON && (await resp.json()).detail) || resp.statusText);
+    return isJSON ? resp.json() : null;
+  }
+
+  function baseOption(){
+    return {
+      tooltip: { trigger: 'axis' },
+      grid: { top: 50, right: 20, bottom: 50, left: 50 },
+      xAxis: { type: 'category', data: [] },
+      yAxis: { type: 'value' },
+      series: [{ type: 'bar', data: [] }]
+    };
+  }
+
+  // {data:[{key,value},...]} -> option merge (если в options нет series — создадим)
+  function applyDataToOption(option, payload){
+    const x = (payload?.data || []).map(d => d.key);
+    const y = (payload?.data || []).map(d => (isFinite(d.value) ? d.value : 0));
+    const opt = option && Object.keys(option).length ? option : baseOption();
+    // если series пуст — поставим одну
+    if (!opt.series || !opt.series.length) { opt.series = [{ type: 'bar', data: y }]; }
+    else {
+      // первую серию заполним, остальные не трогаем
+      if (!opt.series[0]) opt.series[0] = { type:'bar' };
+      opt.series[0].data = y;
+    }
+    if (!opt.xAxis) opt.xAxis = { type:'category', data:x };
+    else opt.xAxis.data = x;
+    if (!opt.yAxis) opt.yAxis = { type:'value' };
+    return opt;
+  }
+
+  async function loadCharts(){
+    const listWrap = document.getElementById('ux-charts');
+    listWrap.innerHTML = '<div class="text-muted">Загружаем диаграммы…</div>';
+
+    // ⚠️ если добавил поле published — используем ?published=1
+    const charts = await fetchJSON(`/api/charts/?dataset=${DATASET_ID}&published=1`);
+    const rows = Array.isArray(charts) ? charts : (charts.results || charts);
+
+    if (!rows.length){
+      listWrap.innerHTML = '<div class="text-muted">Для этой таблицы пока нет опубликованных диаграмм</div>';
+      return;
+    }
+
+    // срендерим карточки
+    listWrap.innerHTML = rows.map(c => `
+      <div class="card">
+        <div class="card-header d-flex align-items-center justify-content-between">
+          <strong>${escapeHTML(c.title || ('Chart #'+c.id))}</strong>
+          <span class="text-muted small">id:${c.id}</span>
+        </div>
+        <div class="card-body">
+          <div id="chart-${c.id}" class="chart-box"></div>
+        </div>
+      </div>
+    `).join('');
+
+    // для каждой — тянем data и опции и рисуем
+    for (const c of rows){
+      const option = c.options || {};
+      const payload = await fetchJSON(`/api/charts/${c.id}/data/`);
+      const chart = getChart(`chart-${c.id}`);
+      if (!chart) continue;
+
+      if (payload && Array.isArray(payload.series) && payload.series.length) {
+        const x = payload.x || [];
+        let opt = (option && Object.keys(option).length) ? option : {
+          tooltip: { trigger: 'axis' },
+          legend: { top: 0, type: 'scroll' },
+          grid: { top: 50, right: 20, bottom: 50, left: 50 },
+          xAxis: { type: 'category', data: x },
+          yAxis: { type: 'value' },
+          series: []
+        };
+        // выровняем количество серий
+        if (!opt.series || opt.series.length < payload.series.length) {
+          opt.series = payload.series.map((s, i) => ({
+            type: (option.series && option.series[i] && option.series[i].type) || 'bar',
+            name: s.name, data: s.data
+          }));
+        } else {
+          payload.series.forEach((s, i) => {
+            opt.series[i] = { ...(opt.series[i] || {type:'bar'}), name: s.name, data: s.data };
+          });
+        }
+        if (!opt.xAxis) opt.xAxis = { type:'category', data:x }; else opt.xAxis.data = x;
+        if (!opt.yAxis) opt.yAxis = { type:'value' };
+        chart.setOption(opt, true);
+      } else {
+        // fallback: одиночная серия (старый формат)
+        chart.setOption(applyDataToOption(option, payload), true);
+      }
+    }
+  }
+
+  function escapeHTML(s){ return String(s||'').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
+
+  document.addEventListener('DOMContentLoaded', () => {
+    if (!DATASET_ID){ alert('Dataset not found'); return; }
+    loadCharts().catch(err => { console.error(err); alert('Не удалось загрузить диаграммы'); });
+  });
+</script>
+{% endblock vendor_js %}

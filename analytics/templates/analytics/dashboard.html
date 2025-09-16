@@ -1,0 +1,565 @@
+{% extends layout_path %}
+
+{% block vendor_css %}
+<style>
+  .app { display: grid; grid-template-columns: 280px 1fr; gap: 1rem; min-height: calc(100vh - 100px); }
+  @media (max-width: 992px){ .app { grid-template-columns: 1fr; } .sidebar { order: 2; } }
+  .card { border-radius: 1rem; }
+  .chart-box { height: 440px; }
+  .form-label { font-weight: 600; }
+  .sidebar { position: sticky; top: 76px; height: calc(100vh - 110px); overflow: auto; padding-bottom: 1rem; }
+  .ds-item { display:flex; align-items:center; justify-content:space-between; padding:.5rem .75rem; border-radius:.5rem; cursor:pointer; }
+  .ds-item:hover { background:#f6f8fb; } .ds-item.active { background:#e8f0ff; }
+  .ds-name { font-weight:600; font-size:.95rem; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; max-width: 180px;}
+  .ds-meta { font-size:.8rem; color:#6b7280; }
+</style>
+{% endblock vendor_css %}
+
+{% block content %}
+
+<script>
+  // ---- CSRF + fetch wrapper (с куками для session auth) ----
+  function getCookie(name) {
+    const m = document.cookie.match(new RegExp('(^| )'+name+'=([^;]+)')); return m ? decodeURIComponent(m[2]) : null;
+  }
+  const CSRF_TOKEN = getCookie('csrftoken');
+
+  async function fetchJSON(url, opts={}) {
+    const resp = await fetch(url, {
+      credentials: 'same-origin',
+      headers: { 'Accept':'application/json', ...(opts.headers||{}) },
+      ...opts
+    });
+    const isJSON = (resp.headers.get('content-type')||'').includes('application/json');
+    if (!resp.ok) {
+      const err = isJSON ? await resp.json() : { detail: resp.statusText };
+      throw Object.assign(new Error(err.detail || 'Request error'), {response: resp, payload: err});
+    }
+    return isJSON ? resp.json() : null;
+  }
+</script>
+
+<div class="container-xxl py-3">
+  <div class="app">
+
+    <!-- ===== Sidebar: Datasets & Dashboards ===== -->
+    <aside class="sidebar">
+      <div class="card mb-3">
+        <div class="card-header"><strong>Таблицы</strong></div>
+        <div class="card-body">
+          <input id="ux-ds-search" class="form-control form-control-sm mb-2" placeholder="Поиск по названию...">
+          <div id="ux-ds-list" class="vstack gap-1"></div>
+        </div>
+      </div>
+
+      <div class="card">
+        <div class="card-header"><strong>Мои дашборды</strong></div>
+        <div class="card-body">
+          <div class="d-flex gap-2">
+            <select id="ux-dashboard" class="form-select form-select-sm"></select>
+            <button id="ux-new-dash" class="btn btn-sm btn-outline-primary">+</button>
+          </div>
+          <div class="form-text">Выберите дашборд для сохранения диаграммы.</div>
+        </div>
+      </div>
+    </aside>
+
+    <!-- ===== Main: Конструктор ===== -->
+    <main>
+      <div class="card mb-3">
+        <div class="card-body row g-3 align-items-end">
+          <div class="col-12 col-lg-4">
+            <label class="form-label">Выбранная таблица</label>
+            <input id="ux-current-ds" class="form-control" disabled value="—">
+          </div>
+
+          <div class="col-6 col-lg-2">
+            <label class="form-label">Group by</label>
+            <select id="ux-groupby" class="form-select"></select>
+          </div>
+          <div class="col-6 col-lg-2">
+            <label class="form-label">Metric</label>
+            <select id="ux-metric" class="form-select">
+              <option value="sum">sum</option>
+              <option value="avg">avg</option>
+              <option value="min">min</option>
+              <option value="max">max</option>
+              <option value="count">count</option>
+            </select>
+          </div>
+
+          <!-- === Multi-series fields === -->
+          <div class="col-12">
+            <label class="form-label">Series (fields)</label>
+            <div id="ux-series-wrap" class="vstack gap-2"></div>
+            <button id="ux-add-series" class="btn btn-sm btn-outline-primary mt-1">+ Field</button>
+            <div class="form-text">Добавьте 1–5 полей; для pie/donut будет использовано только первое.</div>
+          </div>
+
+          <div class="col-6 col-lg-3">
+            <label class="form-label">Chart type</label>
+            <select id="ux-charttype" class="form-select">
+              <option value="bar">Bar</option>
+              <option value="line">Line</option>
+              <option value="area">Area</option>
+              <option value="stacked-bar">Stacked Bar</option>
+              <option value="pie">Pie</option>
+              <option value="donut">Donut</option>
+              <option value="scatter">Scatter</option>
+            </select>
+          </div>
+
+          <div class="col-6 col-lg-3">
+            <label class="form-label">Поле даты</label>
+            <select id="ux-datefield" class="form-select"></select>
+          </div>
+          <div class="col-6 col-lg-3">
+            <label class="form-label">Дата с</label>
+            <input id="ux-datefrom" type="date" class="form-control">
+          </div>
+          <div class="col-6 col-lg-3">
+            <label class="form-label">Дата по</label>
+            <input id="ux-dateto" type="date" class="form-control">
+          </div>
+
+          <div class="col-12">
+            <div class="d-flex align-items-center gap-2">
+              <button class="btn btn-primary" id="ux-apply">Построить</button>
+              <button class="btn btn-outline-secondary" id="ux-reset">Сброс</button>
+              <div class="ms-auto text-muted small">Добавляйте несколько значений фильтра для одного ключа — порядок сохранится.</div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Фильтры -->
+      <div class="card mb-3">
+        <div class="card-header d-flex align-items-center justify-content-between">
+          <strong>Фильтры</strong>
+          <button class="btn btn-sm btn-outline-primary" id="ux-add-filter">+ Добавить</button>
+        </div>
+        <div class="card-body" id="ux-filters"></div>
+      </div>
+
+      <!-- Превью -->
+      <div class="card mb-3">
+        <div class="card-header"><strong>Превью диаграммы</strong></div>
+        <div class="card-body"><div id="ux-preview-chart" class="chart-box"></div></div>
+      </div>
+
+      <!-- Сохранение диаграммы -->
+      <div class="card">
+        <div class="card-header"><strong>Сохранить диаграмму</strong></div>
+        <div class="card-body row g-3">
+          <div class="col-12 col-md-6">
+            <label class="form-label">Название диаграммы</label>
+            <input id="ux-chart-title" class="form-control" placeholder="Напр.: Экспорт по регионам (сентябрь)">
+          </div>
+          <div class="col-6 col-md-3">
+            <label class="form-label">Публиковать</label>
+            <select id="ux-published" class="form-select">
+              <option value="1">Да</option><option value="0" selected>Нет</option>
+            </select>
+          </div>
+          <div class="col-6 col-md-3">
+            <label class="form-label">Порядок на странице</label>
+            <input id="ux-order" type="number" class="form-control" value="0">
+          </div>
+          <div class="col-12">
+            <button id="ux-save" class="btn btn-success">Сохранить в ChartConfig</button>
+            <span id="ux-save-result" class="ms-3 text-muted"></span>
+          </div>
+        </div>
+      </div>
+    </main>
+
+  </div>
+</div>
+
+{% endblock content %}
+
+{% block vendor_js %}
+<script src="https://cdn.jsdelivr.net/npm/echarts/dist/echarts.min.js" defer></script>
+<script>
+/* =============== Глоб. состояние =============== */
+const DATASET_PAGE_PREFIX = '/api/table/';
+let CURRENT_DATASET = null;
+let CURRENT_META    = null;
+const MAX_SERIES = 5;
+
+/* =============== Boot =============== */
+document.addEventListener('DOMContentLoaded', () => boot().catch(err => { console.error(err); alert('Ошибка инициализации'); }));
+
+async function boot(){ await Promise.all([loadDashboards(), loadDatasets()]); bindUI(); }
+
+/* =============== Sidebar: Datasets =============== */
+async function loadDatasets(){
+  const wrap = document.getElementById('ux-ds-list');
+  wrap.innerHTML = '<div class="text-muted small">Загружаем таблицы…</div>';
+  const payload = await fetchJSON('/api/datasets/?only_nonempty=1&page_size=1000');
+  const list = Array.isArray(payload) ? payload : (payload.results || []);
+  if (!list.length){ wrap.innerHTML = '<div class="text-muted small">Нет непустых таблиц</div>'; return; }
+
+  const frag = document.createDocumentFragment();
+  list.forEach(d => {
+    const row = document.createElement('div');
+    row.className = 'ds-item'; row.dataset.id = d.id;
+    row.innerHTML = `
+      <div>
+        <div class="ds-name">${escapeHTML(d.name || ('Dataset #'+d.id))}</div>
+        <div class="ds-meta">id:${d.id}</div>
+      </div>
+      <a class="btn btn-sm btn-outline-secondary" href="${DATASET_PAGE_PREFIX}${d.id}/" target="_blank" title="Открыть страницу таблицы">↗</a>
+    `;
+    row.onclick = () => selectDataset(d);
+    frag.appendChild(row);
+  });
+  wrap.innerHTML = ''; wrap.appendChild(frag);
+
+  document.getElementById('ux-ds-search').addEventListener('input', e => {
+    const q = e.target.value.trim().toLowerCase();
+    [...wrap.children].forEach(el => {
+      const name = el.querySelector('.ds-name').textContent.toLowerCase();
+      el.style.display = name.includes(q) ? '' : 'none';
+    });
+  });
+
+  selectDataset(list[0]);
+}
+
+function selectDataset(d){
+  CURRENT_DATASET = d;
+  document.getElementById('ux-current-ds').value = d.name || ('Dataset #'+d.id);
+  [...document.querySelectorAll('.ds-item')].forEach(el => el.classList.toggle('active', +el.dataset.id === d.id));
+  loadDatasetKeys(d.id).catch(console.error);
+}
+
+async function loadDatasetKeys(datasetId){
+  CURRENT_META = await fetchJSON(`/api/datasets/${datasetId}/keys`);
+  const textKeys = CURRENT_META.keys_text || [];
+  const allKeys  = CURRENT_META.keys_all  || [];
+
+  // ВАЖНО: разрешаем "без группировки"
+  fillSelect('ux-groupby', textKeys, /*allowEmpty*/ true);
+  fillSelect('ux-datefield', guessDateKeys(allKeys), true);
+
+  // init series block
+  document.getElementById('ux-series-wrap').innerHTML = '';
+  addSeriesRow(allKeys);
+}
+
+/* =============== Dashboards =============== */
+async function loadDashboards(){
+  const sel = document.getElementById('ux-dashboard');
+  sel.innerHTML = '<option value="">— выберите дашборд —</option>';
+  try{
+    const res = await fetchJSON('/api/dashboards/');
+    const list = Array.isArray(res) ? res : (res.results || []);
+    list.forEach(d => {
+      const opt = document.createElement('option'); opt.value = d.id; opt.textContent = d.title || ('Dashboard #'+d.id);
+      sel.appendChild(opt);
+    });
+  }catch(e){ console.warn('Не удалось загрузить список дашбордов', e); }
+}
+
+/* =============== Bind UI =============== */
+function bindUI(){
+  document.getElementById('ux-add-filter').onclick = addFilterRow;
+  document.getElementById('ux-reset').onclick      = resetForm;
+  document.getElementById('ux-apply').onclick      = applyPreview;
+  document.getElementById('ux-save').onclick       = saveChart;
+  document.getElementById('ux-new-dash').onclick   = createDashboardPrompt;
+  document.getElementById('ux-add-series').onclick = () => addSeriesRow(CURRENT_META?.keys_all || []);
+  addFilterRow(); // одна строка фильтра по умолчанию
+}
+
+/* =============== Filters UI =============== */
+function addFilterRow(){
+  const wrap = document.getElementById('ux-filters');
+  const row = document.createElement('div');
+  row.className = 'row g-2 align-items-end mb-1';
+  row.innerHTML = `
+    <div class="col-6 col-md-5"><label class="form-label">Ключ</label><input class="form-control ux-filter-key" placeholder="напр.: Ҳудудлар номи"></div>
+    <div class="col-6 col-md-5"><label class="form-label">Значение</label><input class="form-control ux-filter-val" placeholder="напр.: Тошкент"></div>
+    <div class="col-12 col-md-2"><button class="btn btn-outline-danger w-100 ux-filter-del">Удалить</button></div>
+  `;
+  row.querySelector('.ux-filter-del').onclick = () => row.remove();
+  wrap.appendChild(row);
+}
+
+function readFiltersList(){ // список, сохраняющий порядок и повторы ключа
+  return [...document.querySelectorAll('#ux-filters .row')].map(r => ({
+    k: r.querySelector('.ux-filter-key')?.value?.trim() || '',
+    v: r.querySelector('.ux-filter-val')?.value?.trim() || ''
+  })).filter(x => x.k && x.v);
+}
+
+function groupFiltersByKeyOrdered(){
+  const list = readFiltersList();
+  const map = new Map();
+  list.forEach(({k,v}) => {
+    if(!map.has(k)) map.set(k, []);
+    map.get(k).push(v);
+  });
+  return map; // Map<key,[v1,v2,...]> — порядок сохранён
+}
+
+/* =============== Series UI =============== */
+function addSeriesRow(allKeys){
+  const wrap = document.getElementById('ux-series-wrap');
+  if (wrap.children.length >= MAX_SERIES) return;
+  const idx = wrap.children.length;
+
+  const row = document.createElement('div');
+  row.className = 'row g-2';
+  row.innerHTML = `
+    <div class="col-12 col-lg-6">
+      <select class="form-select ux-series-field"></select>
+    </div>
+    <div class="col-8 col-lg-4">
+      <input class="form-control ux-series-name" placeholder="Название серии (опц.)">
+    </div>
+    <div class="col-4 col-lg-2 d-grid">
+      <button class="btn btn-outline-danger ux-series-del">Удалить</button>
+    </div>
+  `;
+  row.querySelector('.ux-series-del').onclick = () => row.remove();
+
+  const sel = row.querySelector('.ux-series-field');
+  sel.innerHTML = (allKeys||[]).map(k => `<option value="${escapeHTML(k)}">${escapeHTML(k)}</option>`).join('');
+  if (idx < (allKeys||[]).length) sel.value = allKeys[idx];
+
+  wrap.appendChild(row);
+}
+
+function readSeries() {
+  const nodes = document.querySelectorAll('#ux-series-wrap .ux-series-field');
+  const names = document.querySelectorAll('#ux-series-wrap .ux-series-name');
+  const out = [];
+  if (nodes && nodes.length) {
+    nodes.forEach((sel, i) => {
+      const field = (sel.value || '').trim();
+      if (!field) return;
+      const name  = (names[i]?.value || '').trim() || field;
+      out.push({ field, name });
+    });
+  }
+  // Fallback для старых шаблонов, где поле одно
+  if (!out.length) {
+    const single = (document.getElementById('ux-field')?.value || '').trim();
+    if (single) out.push({ field: single, name: single });
+  }
+  return out;
+}
+
+/* =============== Save Chart (ChartConfig) =============== */
+async function saveChart(){
+  try{
+    const dashId = val('ux-dashboard'); if(!dashId) return alert('Выберите дашборд в сайдбаре');
+    if (!CURRENT_DATASET) return alert('Выберите таблицу');
+    const title = val('ux-chart-title').trim(); if(!title) return alert('Укажите название диаграммы');
+
+    // гарантируем, что превью рассчитано
+    const chart = getChart('ux-preview-chart');
+    if(!chart || !(chart.getOption && Object.keys(chart.getOption()||{}).length)) {
+      await applyPreview();
+    }
+    const preview = getChart('ux-preview-chart');
+    if (!preview) return alert('Не удалось построить превью');
+    const option = preview.getOption ? preview.getOption() : {};
+
+    const metric = (val('ux-metric') || 'count').toLowerCase();
+    const seriesBlocks = readSeries(); // [{field,name}, ...]
+    if (!seriesBlocks.length) return alert('Добавьте хотя бы одно поле в Series (fields)');
+
+    const series = seriesBlocks.map(s => ({
+      name: s.name || s.field || metric,
+      metric: metric,
+      field: metric === 'count' ? '' : s.field
+    }));
+
+    const payload = {
+      dashboard: +dashId,
+      title,
+      dataset: CURRENT_DATASET.id,
+      group_by: val('ux-groupby') || '',
+      // fallback metric (для старых рендеров)
+      metric: metric + ':' + ((metric==='count') ? 'id' : (seriesBlocks[0]?.field || '')),
+      series,
+      filters: filtersToObjectMulti(),
+      options: option,
+      order: Number(val('ux-order')||0),
+      date_field: val('ux-datefield') || '',
+      date_from: val('ux-datefrom') || null,
+      date_to: val('ux-dateto') || null,
+      published: val('ux-published') === '1'
+    };
+
+    const res = await fetchJSON('/api/charts/', {
+      method: 'POST',
+      credentials: 'same-origin',
+      headers: { 'Content-Type':'application/json', 'X-CSRFToken': CSRF_TOKEN },
+      body: JSON.stringify(payload)
+    });
+
+    document.getElementById('ux-save-result').textContent = `Сохранено (id=${res.id}).`;
+  }catch(e){
+    console.error(e);
+    document.getElementById('ux-save-result').textContent = e?.payload?.detail || 'Не удалось сохранить диаграмму';
+  }
+}
+
+/* =============== Reset =============== */
+function resetForm(){
+  document.getElementById('ux-groupby').selectedIndex = 0; // это будет "— без группировки —"
+  document.getElementById('ux-metric').value = 'sum';
+  document.getElementById('ux-charttype').value = 'bar';
+  document.getElementById('ux-datefield').selectedIndex = 0;
+  document.getElementById('ux-datefrom').value = '';
+  document.getElementById('ux-dateto').value = '';
+  document.getElementById('ux-filters').innerHTML = ''; addFilterRow();
+  document.getElementById('ux-series-wrap').innerHTML = '';
+  addSeriesRow(CURRENT_META?.keys_all||[]); addSeriesRow(CURRENT_META?.keys_all||[]);
+  const chart = getChart('ux-preview-chart'); if (chart) chart.clear();
+}
+
+/* =============== Preview builder (safe params + ordered filters) =============== */
+async function applyPreview(){
+  if (!CURRENT_DATASET) return alert('Выберите таблицу слева');
+  const dsId = CURRENT_DATASET.id;
+  const groupBy  = val('ux-groupby');            // может быть пустым
+  const metric   = val('ux-metric');
+  const chartType= val('ux-charttype');
+  const seriesArr= readSeries();
+  if (!seriesArr.length) return alert('Добавьте хотя бы одно поле в Series (fields)');
+  const fields   = seriesArr.map(s => s.field);
+  const names    = seriesArr.map(s => s.name);
+
+  if ((chartType==='pie' || chartType==='donut') && fields.length > 1) {
+    alert('Для pie/donut используется только первое поле. Остальные игнорируются.');
+  }
+
+  const dateField = val('ux-datefield'), dateFrom = val('ux-datefrom'), dateTo = val('ux-dateto');
+  const filtMap = groupFiltersByKeyOrdered(); // Map<key, [values...]>
+  const orderedForGroup = (groupBy && filtMap.has(groupBy)) ? (filtMap.get(groupBy) || null) : null;
+
+  // helper: сборка query-параметров
+  const buildParams = (field) => {
+    const p = new URLSearchParams({ dataset_id: String(dsId) });
+
+    // metric: для count достаточно "count"; для остальных — "<sum|avg|min|max>:<field>"
+    const metricParam = (metric === 'count') ? 'count' : `${metric}:${field}`;
+    p.set('metric', metricParam);
+
+    if (groupBy)   p.set('group_by', groupBy);
+    if (dateField) p.set('date_field', dateField);
+    if (dateFrom)  p.set('date_from', dateFrom);
+    if (dateTo)    p.set('date_to', dateTo);
+
+    // все фильтры как есть
+    filtMap.forEach((vals, key) => vals.forEach(v => p.append(`filters[${key}]`, v)));
+
+    return p;
+  };
+
+  // агрегация для одного поля (учёт зафиксированного порядка категорий по group_by)
+  const fetchAggForField = async (field) => {
+    // Валидация для сумм/средних
+    if (metric !== 'count' && !field) {
+      throw new Error(`Для метрики "${metric}" необходимо выбрать поле`);
+    }
+
+    if (groupBy && orderedForGroup && orderedForGroup.length) {
+      const seriesValues = [];
+      for (const valItem of orderedForGroup){
+        const p = buildParams(field);
+        // переуточняем значение текущей категории group_by (сохранит порядок)
+        p.append(`filters[${groupBy}]`, String(valItem));
+        const payload = await fetchJSON(`/api/aggregate?${p.toString()}`);
+        const rows = payload?.data || [];
+        const value = rows.length ? (rows[0].value || 0) : 0;
+        seriesValues.push(value);
+      }
+      return { x: [...orderedForGroup], y: seriesValues };
+    }
+
+    // обычный путь — один запрос
+    const p = buildParams(field);
+    const payload = await fetchJSON(`/api/aggregate?${p.toString()}`);
+    const rows = payload?.data || [];
+    return { x: rows.map(r=>r.key), y: rows.map(r=> (isFinite(r.value)?r.value:0)) };
+  };
+
+  // набираем серии
+  const results = [];
+  for (const f of fields.slice(0, MAX_SERIES)) {
+    results.push(await fetchAggForField(f));
+  }
+
+  // унификация оси X (берём первую как эталон, либо orderedForGroup)
+  const xBase = (groupBy && orderedForGroup && orderedForGroup.length) ? orderedForGroup : (results[0]?.x || []);
+  const option = buildOptionMulti(chartType, xBase, results.map(r => r.y), names);
+
+  const chart = getChart('ux-preview-chart');
+  if (chart) chart.setOption(option, true);
+}
+
+// Мульти-серии для разных типов
+function buildOptionMulti(type, x, ys, names){
+  const base = { tooltip: { trigger: (type==='pie'||type==='donut')?'item':'axis' }, legend: { top: 0, type:'scroll' } };
+  if (type==='pie' || type==='donut') {
+    const data = x.map((name,i)=>({ name, value: (ys[0]||[])[i]||0 }));
+    return {
+      ...base,
+      series: [{ type:'pie', radius: (type==='donut')?['40%','70%']:'60%', data, label:{show:false}, emphasis:{label:{show:true,fontSize:16,fontWeight:'bold'}} }]
+    };
+  }
+  const option = {
+    ...base,
+    grid: { top: 50, right: 20, bottom: 50, left: 50 },
+    xAxis: { type:'category', data: x, axisLabel:{ rotate:45 } },
+    yAxis: { type:'value' },
+    series: []
+  };
+  ys.forEach((y, i) => {
+    const s = { name: names[i] || `Series ${i+1}`, data: y };
+    if (type==='line')            option.series.push({ type:'line', smooth:true, ...s });
+    else if (type==='area')       option.series.push({ type:'line', smooth:true, areaStyle:{}, ...s });
+    else if (type==='scatter')    option.series.push({ type:'scatter', ...s });
+    else if (type==='stacked-bar')option.series.push({ type:'bar', stack:'total', ...s });
+    else                          option.series.push({ type:'bar', ...s });
+  });
+  return option;
+}
+
+/* =============== Create Dashboard =============== */
+async function createDashboardPrompt(){
+  const title = prompt('Название дашборда:'); if(!title) return;
+  try{
+    const res = await fetchJSON('/api/dashboards/', {
+      method: 'POST',
+      headers: { 'Content-Type':'application/json', 'X-CSRFToken': CSRF_TOKEN },
+      body: JSON.stringify({ title })
+    });
+    await loadDashboards();
+    document.getElementById('ux-dashboard').value = res.id;
+  }catch(e){
+    console.error(e);
+    alert(e?.payload?.detail || 'Не удалось создать дашборд. Проверьте, что вы авторизованы.');
+  }
+}
+
+/* =============== Helpers =============== */
+function getChart(id){ const el = document.getElementById(id); if(!el) return null; const prev = echarts.getInstanceByDom(el); if(prev) prev.dispose(); const inst = echarts.init(el); window.addEventListener('resize', () => inst.resize()); return inst; }
+function val(id){ const el = document.getElementById(id); return el ? el.value : ''; }
+function fillSelect(id, items, allowEmpty=false){ const el = document.getElementById(id); if(!el) return; const opts = (allowEmpty?['']:[]).concat(items||[]); el.innerHTML = opts.map(k=>`<option value="${escapeHTML(k)}">${escapeHTML(k)||'— без группировки —'}</option>`).join(''); }
+function guessDateKeys(keys){ return (keys||[]).filter(k => /date|санаси|дата|period/i.test(k)).concat(keys||[]).slice(0, 10); }
+function escapeHTML(s){ return String(s||'').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
+
+function filtersToObjectMulti(){
+  const map = groupFiltersByKeyOrdered();
+  const obj = {}; map.forEach((vals, key) => obj[key] = vals);
+  return obj;
+}
+</script>
+{% endblock vendor_js %}

@@ -1,0 +1,556 @@
+{% extends layout_path %}
+
+{% block vendor_css %}
+<style>
+  .mi-grid{display:grid; gap:14px; grid-template-columns:1fr 1fr; grid-template-rows:430px 430px;}
+  @media (max-width:1200px){ .mi-grid{grid-template-columns:1fr; grid-template-rows:repeat(4,430px);} }
+  .mi-card{position:relative; border-radius:16px; background:var(--bs-card-bg,#fff); border:1px solid rgba(0,0,0,.06); color:var(--bs-body-color); overflow:hidden;}
+  .mi-card .hd{padding:14px 16px; font-weight:700}
+  .mi-card .bd{padding:8px 16px 16px 16px; height:calc(100% - 56px); box-sizing:border-box}
+  .mi-empty{height:100%; display:flex; align-items:center; justify-content:center; color:var(--bs-secondary-color)}
+
+  .two-col{display:grid; grid-template-columns:1.1fr .9fr; gap:10px; margin-top:6px}
+  .left-col{display:grid; grid-template-rows:auto auto; gap:8px}
+  .right-col{display:block}
+
+  .kpi{background:rgba(0,0,0,.035); border-radius:12px; padding:8px 10px;}
+  .kpi .lbl{font-size:.78rem; color:var(--bs-secondary-color)}
+  .kpi .val{font-size:1rem; font-weight:800; margin-top:2px}
+
+  .triple{background:rgba(0,0,0,.035); border-radius:12px; padding:8px 10px; margin-top:8px}
+  .triple .row{display:grid; grid-template-columns:repeat(3,1fr); gap:8px}
+  .triple .lbl{font-size:.78rem; color:var(--bs-secondary-color)}
+  .mini{font-size:.9rem; font-weight:800}
+
+  .ring-sm{width:100%; height:200px}
+  .ring-lg{width:100%; height:360px}
+
+  .btn-expand{position:absolute; top:8px; right:8px}
+
+  .mi-slider-nav{display:flex; align-items:center; justify-content:center; gap:8px; margin-top:10px}
+  .mi-page{width:28px; height:28px; border-radius:999px; display:flex; align-items:center; justify-content:center; font-size:.85rem; cursor:pointer; color:var(--bs-secondary-color)}
+  .mi-page.active{background:var(--bs-primary); color:#fff}
+  .mi-arrow{width:28px; height:28px; border-radius:999px; display:flex; align-items:center; justify-content:center; background:rgba(0,0,0,.05); color:var(--bs-secondary-color); cursor:pointer}
+  .mi-arrow.disabled{opacity:.4; pointer-events:none}
+
+  .mi-modal{position:fixed; inset:0; background:rgba(0,0,0,.5); display:none; align-items:center; justify-content:center; z-index:2000}
+  .mi-modal.open{display:flex}
+  .mi-box{width:min(1300px,96vw); height:min(760px,92vh); background:#fff; color:var(--bs-body-color); border-radius:18px; overflow:hidden; box-shadow:0 10px 50px rgba(0,0,0,.5)}
+  .mi-box .hd{display:flex; align-items:center; justify-content:space-between; padding:12px 16px; background:#fff}
+  .mi-box .bd{padding:12px 16px; height:calc(100% - 54px); overflow:auto}
+
+  .org-ul{margin:8px 0 0 0; padding:0; list-style:none; overflow:auto; max-height:520px}
+  .org-li{display:grid; grid-template-columns:28px 1fr 110px; gap:8px; align-items:center; padding:8px 10px; border-bottom:1px solid rgba(0,0,0,.06)}
+  .org-li:hover{background:rgba(0,0,0,.04); cursor:pointer}
+
+  .table-wrap{overflow:auto}
+</style>
+{% endblock vendor_css %}
+
+{% block content %}
+<div class="container-xxl py-3">
+  <div class="d-flex align-items-center gap-2 mb-2">
+    <div class="fw-bold">Ойлик ГРП</div>
+    <span class="text-secondary">•</span>
+    <div class="d-flex align-items-center gap-2">
+      <label class="text-secondary">Дата:</label>
+      <input id="ux-date" type="date" class="form-control form-control-sm" style="width:180px">
+      <button id="ux-apply-date" class="btn btn-sm btn-primary">Применить</button>
+    </div>
+  </div>
+
+  <div id="mi-grid" class="mi-grid">
+    <section class="mi-card" id="c-main">
+      <button class="btn btn-sm btn-outline-secondary btn-expand" id="btn-expand-main">⤢</button>
+      <div class="hd" style="font-size: 12px;">Давлат кафолати остида хорижий кредитлар иштирокида амалга ошириладиган инвестиция лойиҳалари</div>
+      <div class="bd">
+        <div class="d-flex align-items-start">
+          <div class="left-col">
+            <div id="chart-ring" class="ring-sm"></div>
+            <div class="kpi">
+              <div class="lbl">Хорижий кредитлар умумий қиймати</div>
+              <div class="val" id="kpi-total-amount">—</div>
+            </div>
+          </div>
+
+          <div class="right-col">
+            <div class="row g-2 mb-2">
+              <div class="col-6">
+                <div class="kpi h-100 d-flex flex-column justify-content-center">
+                  <div class="lbl text-wrap">01.01.2025 йилга кутилаётган қолдиқ</div>
+                  <div class="val" id="kpi-balance">—</div>
+                </div>
+              </div>
+              <div class="col-6">
+                <div class="kpi h-100 d-flex flex-column justify-content-center">
+                  <div class="lbl">2025 йил ўзлаштириш прогнози</div>
+                  <div class="val" id="kpi-forecast">—</div>
+                </div>
+              </div>
+            </div>
+
+            <div class="triple">
+              <div class="small text-secondary mb-3">2025 йил январь-июль ойлари якуни бўйича ўзлаштириш</div>
+              <div class="row">
+                <div><div class="lbl">прогноз</div><div class="mini" id="x1-plan">—</div></div>
+                <div><div class="lbl">амалда</div><div class="mini" id="x1-fact">—</div></div>
+                <div><div class="lbl">фоизда</div><div class="mini" id="x1-pct">—</div></div>
+              </div>
+            </div>
+
+            <div class="triple">
+              <div class="small text-secondary mb-3">2025 йил июль ойи якуни бўйича ўзлаштириш</div>
+              <div class="row">
+                <div><div class="lbl">режа</div><div class="mini" id="x2-plan">—</div></div>
+                <div><div class="lbl">амалда</div><div class="mini" id="x2-fact">—</div></div>
+                <div><div class="lbl">фоизда</div><div class="mini" id="x2-pct">—</div></div>
+              </div>
+            </div>
+          </div><!-- /right-col -->
+        </div>
+      </div>
+    </section>
+
+    <section class="mi-card"><div class="mi-empty">—</div></section>
+    <section class="mi-card"><div class="mi-empty">—</div></section>
+    <section class="mi-card"><div class="mi-empty">—</div></section>
+  </div>
+
+  <div class="mi-slider-nav">
+    <div id="btn-prev" class="mi-arrow disabled">‹</div>
+    <div id="mi-pages"></div>
+    <div id="btn-next" class="mi-arrow disabled">›</div>
+  </div>
+</div>
+
+<!-- Modal -->
+<div class="mi-modal" id="mi-modal">
+  <div class="mi-box">
+    <div class="hd">
+      <div id="modal-title">Детальный просмотр</div>
+      <div class="d-flex gap-2">
+        <button id="btn-dl-csv" class="btn btn-sm btn-outline-secondary">Скачать CSV</button>
+        <button class="btn btn-sm btn-outline-secondary" id="btn-close-modal">Закрыть</button>
+      </div>
+    </div>
+    <div class="bd" id="modal-body"></div>
+  </div>
+</div>
+{% endblock content %}
+
+{% block vendor_js %}
+<script src="https://cdn.jsdelivr.net/npm/echarts@5/dist/echarts.min.js"></script>
+<script>
+/* ===== Конфиг ===== */
+const DATASETS_BY_NAME = { TARGET: '№3-6 ойлик ГРП' };
+const DIM = { rowType: 'Т/р', orgName: 'Тармоқ корхоналари' };
+const FIELDS = {
+  countProjects : 'Лойиҳалар сони',
+  totalAmount   : 'Хорижий кредитлар умумий қиймати',
+  balance0101   : '01.01.2025 йилга кутилаётган қолдиқ',
+  // ключи с данными по периодам:
+  janJulPlan    : '2025 йил январь-июль ойлари якуни бўйича ўзлаштириш', // план
+  janJulFact    : 'col_9',   // амалда
+  janJulPct     : 'col_10',  // фоизда (коэффициент)
+  julyPlan      : '2025 йил июль ойи якуни бўйича ўзлаштириш', // режа
+  julyFact      : 'col_17',  // амалда
+  julyPct       : 'col_18',  // фоизда (коэффициент)
+  // прогноз с ДВУМЯ пробелами
+  forecastExact : '2025 йил ўзлаштириш  прогнози'
+};
+
+/* ===== State ===== */
+let DS_ID=null, DATE_FIELD='', DATE_FROM='', DATE_TO='';
+let CURRENT_PAGE=1, PAGE_COUNT=1;
+
+/* ===== Utils/API ===== */
+async function fetchJSON(url, opts={}) {
+  const resp = await fetch(url, {credentials:'same-origin', headers:{'Accept':'application/json', ...(opts.headers||{})}, ...opts});
+  const isJSON = (resp.headers.get('content-type')||'').includes('application/json');
+  if (!resp.ok) { const err = isJSON ? await resp.json() : {detail:resp.statusText}; throw err; }
+  return isJSON ? resp.json() : null;
+}
+const fmt = (v)=> (v==null||v==='')?'—':Number(v).toLocaleString('ru-RU');
+const fmtPct = (v)=> {
+  if (v==null || v==='') return '—';
+  let x = Number(v);
+  if (x <= 2.5) x = x * 100; // коэффициент -> %
+  return Math.round(x) + '%';
+};
+
+async function agg({dataset_id, metric, field='', group_by='', filters={}}){
+  const p = new URLSearchParams({ dataset_id:String(dataset_id) });
+  p.set('metric', metric==='count' ? 'count' : `${metric}:${field}`);
+  if(group_by) p.set('group_by', group_by);
+  if(DATE_FIELD) p.set('date_field', DATE_FIELD);
+  if(DATE_FROM)  p.set('date_from', DATE_FROM);
+  if(DATE_TO)    p.set('date_to', DATE_TO);
+  Object.entries(filters||{}).forEach(([k,vals]) => (Array.isArray(vals)?vals:[vals]).forEach(v => p.append(`filters[${k}]`, v)));
+  const res = await fetchJSON(`/api/aggregate?${p.toString()}`);
+  return res?.data || [];
+}
+function byId(id){ return document.getElementById(id); }
+function escapeHtml(s){ return String(s??'').replace(/[&<>"]/g, c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c])); }
+
+/* ===== Boot ===== */
+document.addEventListener('DOMContentLoaded', () => init().catch(e=>{console.error(e); alert('Ошибка загрузки');}));
+
+async function init(){
+  DS_ID = await findDatasetIdByName(DATASETS_BY_NAME.TARGET);
+  if(!DS_ID){ alert('Не найден датасет для Ойлик ГРП'); return; }
+  await detectDateField();
+
+  byId('ux-apply-date').onclick = applyDate;
+  byId('btn-expand-main').onclick = openMainFull;
+  byId('btn-close-modal').onclick = ()=> byId('mi-modal').classList.remove('open');
+
+  renderPagination();
+  byId('ux-date').valueAsDate = new Date();
+
+  await renderMainCollapsed();
+}
+
+async function detectDateField(){
+  try{
+    const meta = await fetchJSON(`/api/datasets/${DS_ID}/keys`);
+    const all = meta?.keys_all || [];
+    DATE_FIELD = (all||[]).find(k => /санаси|дата|date|period/i.test(k)) || '';
+  }catch(e){ console.warn('keys meta failed', e); }
+}
+function applyDate(){
+  const d = byId('ux-date').value;
+  DATE_FROM = d || ''; DATE_TO = d || '';
+  renderMainCollapsed();
+}
+
+/* ===== Collapsed card ===== */
+async function renderMainCollapsed(){
+  // Кольцо: Лойиҳалар сони (Жами)
+  try{
+    const r = await agg({dataset_id:DS_ID, metric:'sum', field:FIELDS.countProjects, filters:{[DIM.rowType]:'Жами'}});
+    drawRing('chart-ring', Number(r?.[0]?.value || 0), 'Лойиҳалар сони', true);
+  }catch(e){ console.warn(e); }
+
+  // KPI слева/справа (Жами)
+  try{
+    const total = await agg({dataset_id:DS_ID, metric:'sum', field:FIELDS.totalAmount, filters:{[DIM.rowType]:'Жами'}});
+    byId('kpi-total-amount').textContent = fmt(total?.[0]?.value || 0);
+
+    const bal   = await agg({dataset_id:DS_ID, metric:'sum', field:FIELDS.balance0101, filters:{[DIM.rowType]:'Жами'}});
+    byId('kpi-balance').textContent = fmt(bal?.[0]?.value || 0);
+
+    const fc    = await agg({dataset_id:DS_ID, metric:'sum', field:FIELDS.forecastExact, filters:{[DIM.rowType]:'Жами'}});
+    byId('kpi-forecast').textContent = fmt(fc?.[0]?.value || 0);
+  }catch(e){ console.warn(e); }
+
+  // Январь–Июль (Жами)
+  try{
+    const p1 = await agg({dataset_id:DS_ID, metric:'sum', field:FIELDS.janJulPlan, filters:{[DIM.rowType]:'Жами'}});
+    const f1 = await agg({dataset_id:DS_ID, metric:'sum', field:FIELDS.janJulFact, filters:{[DIM.rowType]:'Жами'}});
+    const q1 = await agg({dataset_id:DS_ID, metric:'sum', field:FIELDS.janJulPct,  filters:{[DIM.rowType]:'Жами'}});
+    byId('x1-plan').textContent = fmt(p1?.[0]?.value || 0);
+    byId('x1-fact').textContent = fmt(f1?.[0]?.value || 0);
+    byId('x1-pct').textContent  = fmtPct(q1?.[0]?.value ?? ((p1?.[0]?.value && f1?.[0]?.value) ? (Number(f1[0].value)/Number(p1[0].value)) : null));
+  }catch(e){ console.warn(e); }
+
+  // Июль (Жами)
+  try{
+    const p2 = await agg({dataset_id:DS_ID, metric:'sum', field:FIELDS.julyPlan, filters:{[DIM.rowType]:'Жами'}});
+    const f2 = await agg({dataset_id:DS_ID, metric:'sum', field:FIELDS.julyFact, filters:{[DIM.rowType]:'Жами'}});
+    const q2 = await agg({dataset_id:DS_ID, metric:'sum', field:FIELDS.julyPct,  filters:{[DIM.rowType]:'Жами'}});
+    byId('x2-plan').textContent = fmt(p2?.[0]?.value || 0);
+    byId('x2-fact').textContent = fmt(f2?.[0]?.value || 0);
+    byId('x2-pct').textContent  = fmtPct(q2?.[0]?.value ?? ((p2?.[0]?.value && f2?.[0]?.value) ? (Number(f2[0].value)/Number(p2[0].value)) : null));
+  }catch(e){ console.warn(e); }
+}
+
+/* ===== Full view ===== */
+const PREFERRED_COLS = [
+  DIM.rowType,
+  DIM.orgName,
+  FIELDS.countProjects,
+  FIELDS.totalAmount,
+  FIELDS.balance0101,
+  FIELDS.forecastExact,
+  FIELDS.janJulPlan, FIELDS.janJulFact, FIELDS.janJulPct,
+  FIELDS.julyPlan,   FIELDS.julyFact,   FIELDS.julyPct
+];
+
+async function openMainFull(){
+  const modal = byId('mi-modal'); const body = byId('modal-body'); const title = byId('modal-title');
+  title.textContent = 'Давлат кафолати остида хорижий кредитлар иштирокида амалга ошириладиган инвестиция лойиҳалари';
+
+  body.innerHTML = `
+    <div class="row g-3">
+      <div class="col-12 col-xl-6">
+        <div class="mi-card mb-3">
+          <div class="hd">Жами</div>
+          <div class="bd">
+            <div id="chart-ring-full" class="ring-lg"></div>
+
+            <div class="two-col">
+              <div class="left-col">
+                <div class="kpi"><div class="lbl">Хорижий кредитлар умумий қиймати</div><div class="val" id="fk-total-amount">—</div></div>
+              </div>
+              <div class="right-col">
+                <div class="kpi"><div class="lbl">01.01.2025 йилга кутилаётган қолдиқ</div><div class="val" id="fk-balance">—</div></div>
+                <div class="kpi"><div class="lbl">2025 йил ўзлаштириш прогнози</div><div class="val" id="fk-forecast">—</div></div>
+              </div>
+            </div>
+
+            <div class="triple">
+              <div class="small text-secondary mb-1">2025 йил январь-июль ойлари якуни бўйича ўзлаштириш</div>
+              <div class="row">
+                <div><div class="lbl">прогноз</div><div class="mini" id="fk-x1-plan">—</div></div>
+                <div><div class="lbl">амалда</div><div class="mini" id="fk-x1-fact">—</div></div>
+                <div><div class="lbl">фоизда</div><div class="mini" id="fk-x1-pct">—</div></div>
+              </div>
+            </div>
+
+            <div class="triple">
+              <div class="small text-secondary mb-1">2025 йил июль ойи якуни бўйича ўзлаштириш</div>
+              <div class="row">
+                <div><div class="lbl">режа</div><div class="mini" id="fk-x2-plan">—</div></div>
+                <div><div class="lbl">амалда</div><div class="mini" id="fk-x2-fact">—</div></div>
+                <div><div class="lbl">фоизда</div><div class="mini" id="fk-x2-pct">—</div></div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div class="col-12 col-xl-6">
+        <div class="mi-card">
+          <div class="hd d-flex align-items-center justify-content-between">
+            <div class="d-flex align-items-center gap-2">
+              <span>Тармоқ корхоналари</span>
+              <select id="fv-org-sel" class="form-select form-select-sm" style="min-width:260px"></select>
+            </div>
+            <div class="d-flex gap-1">
+              <button id="fv-list"  class="btn btn-sm btn-outline-secondary">Список</button>
+              <button id="fv-table" class="btn btn-sm btn-outline-secondary">Таблица</button>
+              <button id="fv-detail" class="btn btn-sm btn-primary">Детально</button>
+            </div>
+          </div>
+          <div class="bd">
+            <ul class="org-ul" id="fv-org-ul"></ul>
+
+            <div id="fv-org-table" class="d-none">
+              <div class="table-wrap">
+                <table class="table table-sm table-striped" id="fv-full-table">
+                  <thead id="fv-thead"></thead>
+                  <tbody id="fv-tbody"></tbody>
+                </table>
+              </div>
+            </div>
+
+            <div id="fv-detail-card" class="d-none">
+              <div id="od-ring" class="ring-sm"></div>
+              <div class="kpi"><div class="lbl"">Лойиҳалар сони</div><div class="val" id="od-count">—</div></div>
+              <div class="two-col mt-2">
+                <div class="left-col">
+                  <div class="kpi"><div class="lbl">Хорижий кредитлар умумий қиймати</div><div class="val" id="od-total">—</div></div>
+                </div>
+                <div class="right-col">
+                  <div class="kpi"><div class="lbl">01.01.2025 йилга кутилаётган қолдиқ</div><div class="val" id="od-balance">—</div></div>
+                  <div class="kpi"><div class="lbl">2025 йил ўзлаштириш прогнози</div><div class="val" id="od-forecast">—</div></div>
+                </div>
+              </div>
+              <div class="triple">
+                <div class="small text-secondary mb-1">2025 йил январь-июль ойлари якуни бўйича ўзлаштириш</div>
+                <div class="row">
+                  <div><div class="lbl">прогноз</div><div class="mini" id="od-x1-plan">—</div></div>
+                  <div><div class="lbl">амалда</div><div class="mini" id="od-x1-fact">—</div></div>
+                  <div><div class="lbl">фоизда</div><div class="mini" id="od-x1-pct">—</div></div>
+                </div>
+              </div>
+              <div class="triple">
+                <div class="small text-secondary mb-1">2025 йил июль ойи якуни бўйича ўзлаштириш</div>
+                <div class="row">
+                  <div><div class="lbl">режа</div><div class="mini" id="od-x2-plan">—</div></div>
+                  <div><div class="lbl">амалда</div><div class="mini" id="od-x2-fact">—</div></div>
+                  <div><div class="lbl">фоизда</div><div class="mini" id="od-x2-pct">—</div></div>
+                </div>
+              </div>
+            </div><!-- /detail -->
+          </div>
+        </div>
+      </div>
+    </div>`;
+
+  // Левая половина (Жами)
+  try{
+    const totalProjects = await valSum(FIELDS.countProjects, {[DIM.rowType]:'Жами'});
+    drawRing('chart-ring-full', totalProjects, 'Лойиҳалар сони', false);
+
+    byId('fk-total-amount').textContent = fmt(await valSum(FIELDS.totalAmount, {[DIM.rowType]:'Жами'}));
+    byId('fk-balance').textContent      = fmt(await valSum(FIELDS.balance0101,   {[DIM.rowType]:'Жами'}));
+    byId('fk-forecast').textContent     = fmt(await valSum(FIELDS.forecastExact, {[DIM.rowType]:'Жами'}));
+
+    // Январь–Июль (Жами)
+    const p1 = await valSum(FIELDS.janJulPlan, {[DIM.rowType]:'Жами'});
+    const f1 = await valSum(FIELDS.janJulFact, {[DIM.rowType]:'Жами'});
+    const q1 = await valSum(FIELDS.janJulPct,  {[DIM.rowType]:'Жами'});
+    byId('fk-x1-plan').textContent = fmt(p1);
+    byId('fk-x1-fact').textContent = fmt(f1);
+    byId('fk-x1-pct').textContent  = fmtPct(q1 ?? (p1? f1/p1 : null));
+
+    // Июль (Жами)
+    const p2 = await valSum(FIELDS.julyPlan, {[DIM.rowType]:'Жами'});
+    const f2 = await valSum(FIELDS.julyFact, {[DIM.rowType]:'Жами'});
+    const q2 = await valSum(FIELDS.julyPct,  {[DIM.rowType]:'Жами'});
+    byId('fk-x2-plan').textContent = fmt(p2);
+    byId('fk-x2-fact').textContent = fmt(f2);
+    byId('fk-x2-pct').textContent  = fmtPct(q2 ?? (p2? f2/p2 : null));
+  }catch(e){ console.warn(e); }
+
+  // Правая половина: список/таблица/детально
+  const dataOrg = await agg({dataset_id:DS_ID, group_by:DIM.orgName, metric:'sum', field:FIELDS.countProjects});
+  (dataOrg||[]).sort((a,b)=> (Number(b.value||0)-Number(a.value||0)));
+
+  const sel = byId('fv-org-sel');
+  sel.innerHTML = (dataOrg||[]).map(r=>`<option value="${escapeHtml(r.key)}">${escapeHtml(r.key)}</option>`).join('');
+  const firstOrg = dataOrg?.[0]?.key || '';
+
+  const ul = byId('fv-org-ul'); ul.innerHTML = '';
+  (dataOrg||[]).forEach((r,i)=>{
+    const li = document.createElement('li');
+    li.className='org-li';
+    li.innerHTML = `<div class="text-secondary">${i+1}</div><div class="org-name">${escapeHtml(r.key)}</div><div class="fw-bold text-end">${fmt(r.value)}</div>`;
+    ul.appendChild(li);
+  });
+
+  await buildFullTable();
+
+  byId('fv-list').onclick   = ()=>{ showRight('list'); };
+  byId('fv-table').onclick  = ()=>{ showRight('table'); };
+  byId('fv-detail').onclick = async ()=>{ await renderOrgDetail(sel.value || firstOrg); showRight('detail'); };
+
+  byId('btn-dl-csv').onclick = downloadCSV;
+
+  modal.classList.add('open');
+}
+
+function showRight(mode){
+  byId('fv-org-ul').classList.toggle('d-none', mode!=='list');
+  byId('fv-org-table').classList.toggle('d-none', mode!=='table');
+  byId('fv-detail-card').classList.toggle('d-none', mode!=='detail');
+}
+
+async function renderOrgDetail(name){
+  const f = {[DIM.orgName]: name};
+  const count = await valSum(FIELDS.countProjects, f);
+  drawRing('od-ring', count, 'Лойиҳалар сони', true);
+  byId('od-count').textContent   = fmt(count);
+  byId('od-total').textContent   = fmt(await valSum(FIELDS.totalAmount, f));
+  byId('od-balance').textContent = fmt(await valSum(FIELDS.balance0101, f));
+  byId('od-forecast').textContent= fmt(await valSum(FIELDS.forecastExact, f));
+
+  // Январь–Июль по организации
+  const p1 = await valSum(FIELDS.janJulPlan, f);
+  const f1 = await valSum(FIELDS.janJulFact, f);
+  const q1 = await valSum(FIELDS.janJulPct,  f);
+  byId('od-x1-plan').textContent = fmt(p1);
+  byId('od-x1-fact').textContent = fmt(f1);
+  byId('od-x1-pct').textContent  = fmtPct(q1 ?? (p1? f1/p1 : null));
+
+  // Июль по организации
+  const p2 = await valSum(FIELDS.julyPlan, f);
+  const f2 = await valSum(FIELDS.julyFact, f);
+  const q2 = await valSum(FIELDS.julyPct,  f);
+  byId('od-x2-plan').textContent = fmt(p2);
+  byId('od-x2-fact').textContent = fmt(f2);
+  byId('od-x2-pct').textContent  = fmtPct(q2 ?? (p2? f2/p2 : null));
+}
+
+/* ===== Таблица + CSV ===== */
+async function buildFullTable(){
+  const rows = await fetchJSON(`/api/datasets/${DS_ID}/rows?page_size=500`);
+  let data = rows?.results || rows || [];
+  if (!data.length){ byId('fv-thead').innerHTML=''; byId('fv-tbody').innerHTML=''; return; }
+
+  // Чтобы заголовочные строки из файла были наверху: инвертируем порядок (в API новые сверху)
+  data = data.slice().reverse();
+
+  const allKeys = Array.from(new Set(data.flatMap(r => Object.keys(r.data||{}))));
+  const preferred = PREFERRED_COLS.filter(k => allKeys.includes(k));
+  const rest = allKeys.filter(k => !preferred.includes(k));
+  const cols = [...preferred, ...rest];
+
+  byId('fv-thead').innerHTML = `<tr>${cols.map(c=>`<th>${escapeHtml(c)}</th>`).join('')}</tr>`;
+  const tb = byId('fv-tbody'); tb.innerHTML='';
+  data.forEach(r=>{
+    const tr = document.createElement('tr');
+    tr.innerHTML = cols.map(c=>`<td>${escapeHtml((r.data||{})[c]??'')}</td>`).join('');
+    tb.appendChild(tr);
+  });
+
+  window.__table_for_csv = { cols, data };
+}
+
+function downloadCSV(){
+  const t = window.__table_for_csv; if(!t) return;
+  const head = t.cols.join(';');
+  const lines = t.data.map(r => t.cols.map(c => {
+    const cell = String((r.data||{})[c] ?? '');
+    return cell.replaceAll(';', ',');
+  }).join(';'));
+  const csv = [head, ...lines].join('\n');
+  const bom = '\uFEFF'; // UTF-8 BOM для Excel
+  const blob = new Blob([bom + csv], {type:'text/csv;charset=utf-8;'});
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = 'table.csv';
+  a.click();
+}
+
+/* ===== Helpers ===== */
+async function valSum(field, filters){
+  const r = await agg({dataset_id:DS_ID, metric:'sum', field, filters});
+  return Number(r?.[0]?.value || 0);
+}
+
+/* ===== Rings ===== */
+function drawRing(domId, value, caption, small){
+  const el = byId(domId); if(!el) return;
+  const chart = echarts.init(el);
+  const bodyColor = getComputedStyle(document.body).getPropertyValue('--bs-body-color') || '#111';
+  const valueFont = Math.max(32, Math.min(small?52:60, Math.round(el.clientWidth * 0.18)));
+  const option = {
+    tooltip:{show:false},
+    series:[{ type:'pie', radius: small?['66%','86%']:['64%','90%'], startAngle:90, label:{show:false},
+      data:[{value:Math.max(0.0001, value||0), name:caption},{value:0.0001}] }],
+    graphic:[
+      {type:'text', left:'center', top: small?'40%':'38%', style:{text:String(value||0), fill:bodyColor, fontSize:valueFont, fontWeight:'800'}},
+      {type:'text', left:'center', top: small?'64%':'60%', style:{text:caption, fill:'#6c757d', fontSize:14}}
+    ]
+  };
+  chart.setOption(option, true);
+  window.addEventListener('resize', ()=>chart.resize());
+}
+
+/* ===== Pagination ===== */
+function renderPagination(){
+  PAGE_COUNT = 1; CURRENT_PAGE = 1;
+  const holder = byId('mi-pages'); holder.innerHTML = '';
+  for(let i=1;i<=PAGE_COUNT;i++){
+    const btn = document.createElement('div');
+    btn.className = 'mi-page' + (i===CURRENT_PAGE?' active':'');
+    btn.textContent = i; btn.onclick = ()=> goPage(i);
+    holder.appendChild(btn);
+  }
+  byId('btn-prev').classList.toggle('disabled', CURRENT_PAGE<=1);
+  byId('btn-next').classList.toggle('disabled', CURRENT_PAGE>=PAGE_COUNT);
+}
+function goPage(n){ CURRENT_PAGE = Math.max(1, Math.min(PAGE_COUNT, n)); renderPagination(); }
+
+/* ===== dataset resolve ===== */
+async function findDatasetIdByName(name){
+  if(!name) return null;
+  const res = await fetchJSON('/api/datasets/?only_nonempty=1&page_size=1000');
+  const list = Array.isArray(res)?res:(res.results||[]);
+  const hit = list.find(x => (x.name||'').toLowerCase().includes(String(name).toLowerCase()));
+  return hit?.id || null;
+}
+</script>
+{% endblock vendor_js %}
