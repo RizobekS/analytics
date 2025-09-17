@@ -1,6 +1,6 @@
 # analytics/views.py
 from django.db.models import Count
-from rest_framework import viewsets, filters
+from rest_framework import viewsets, filters, permissions
 from ingest.models import Dataset, DatasetRow
 from .serializers import DatasetSerializer, DatasetRowSerializer
 from django_filters.rest_framework import DjangoFilterBackend
@@ -9,6 +9,7 @@ from django.db.models.fields.json import KeyTextTransform
 
 class DatasetViewSet(viewsets.ReadOnlyModelViewSet):
     serializer_class = DatasetSerializer
+    permission_classes = [permissions.IsAuthenticated]
 
     def get_queryset(self):
         qs = Dataset.objects.all().annotate(n=Count('rows'))  # <-- FIX
