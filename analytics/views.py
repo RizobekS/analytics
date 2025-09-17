@@ -17,7 +17,7 @@ class DatasetViewSet(viewsets.ReadOnlyModelViewSet):
 class DatasetRowViewSet(viewsets.ReadOnlyModelViewSet):
     serializer_class = DatasetRowSerializer
     filter_backends = [DjangoFilterBackend, filters.OrderingFilter]
-    ordering = ["-id"]
+    ordering = ["id"]
     def get_queryset(self):
         ds_id = self.kwargs["dataset_id"]
         qs = DatasetRow.objects.filter(dataset_id=ds_id)
