@@ -5,8 +5,26 @@ from rest_framework import viewsets, filters, permissions
 from django_filters.rest_framework import DjangoFilterBackend
 from django.db.models.fields.json import KeyTextTransform
 
-from ingest.models import Dataset, DatasetRow
-from .serializers import DatasetSerializer, DatasetRowSerializer
+from ingest.models import Dataset, DatasetRow, HandleRegistry
+from .serializers import DatasetSerializer, DatasetRowSerializer, HandleRegistrySerializer
+
+
+class HandleRegistryViewSet(viewsets.ReadOnlyModelViewSet):
+    """
+    /api/handles/ — список хэндлов для сайдбара/меню.
+    Поддерживает:
+      - фильтры: visible, group, handle (точное совпадение)
+      - поиск: по handle/title
+      - сортировка: order_index (по умолчанию), handle
+    """
+    queryset = HandleRegistry.objects.all()
+    serializer_class = HandleRegistrySerializer
+    permission_classes = [permissions.IsAuthenticated]
+    filter_backends = [DjangoFilterBackend, filters.SearchFilter, filters.OrderingFilter]
+    filterset_fields = ["visible", "group", "handle"]
+    search_fields = ["handle", "title"]
+    ordering_fields = ["order_index", "handle", "id"]
+    ordering = ["order_index", "handle"]
 
 
 class DatasetViewSet(viewsets.ReadOnlyModelViewSet):

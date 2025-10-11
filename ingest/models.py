@@ -28,6 +28,10 @@ class ColumnMapping(models.Model):
         default="text",
     )
     required = models.BooleanField(default=False)
+    min_value = models.DecimalField(max_digits=24, decimal_places=6, null=True, blank=True)
+    max_value = models.DecimalField(max_digits=24, decimal_places=6, null=True, blank=True)
+    regex = models.CharField(max_length=256, blank=True, default="")
+    choices = ArrayField(models.CharField(max_length=256), default=list, blank=True)
 
     class Meta:
         constraints = [
@@ -44,6 +48,21 @@ def excel_upload_to(instance, filename):
     # /media/uploads/2025-09-20/filename.xlsx
     d = datetime.now()
     return f"uploads/{d:%Y-%m-%d}/{filename}"
+
+
+class HandleRegistry(models.Model):
+    handle = models.SlugField(max_length=64, unique=True, db_index=True)
+    title = models.CharField(max_length=255, blank=True, default="")
+    order_index = models.IntegerField(default=1000, db_index=True)  # порядок карточек
+    group = models.CharField(max_length=64, blank=True, default="")
+    visible = models.BooleanField(default=True)
+    icon = models.CharField(max_length=64, blank=True, default="")
+    color = models.CharField(max_length=32, blank=True, default="")
+    # на будущее: хранить стили Luckysheet/оформление
+    style_json = models.JSONField(default=dict, blank=True)
+
+    class Meta:
+        ordering = ["order_index", "handle"]
 
 
 class Workbook(models.Model):
@@ -83,6 +102,12 @@ class Workbook(models.Model):
         null=True, blank=True,
         help_text="Номер строки заголовка (1-based). Пусто/0 — авто."
     )
+    # NEW: стабильный логический идентификатор (для резолвера с фронта)
+    handle = models.SlugField(max_length=64, null=True, blank=True, db_index=True)
+    period_date = models.DateField(null=True, blank=True, db_index=True)
+
+    def __str__(self):
+        return f"{getattr(self, 'filename', 'Workbook')} #{self.pk} [{self.handle or '-'}]"
 
     class Meta:
         verbose_name = "Таблица"
@@ -90,10 +115,14 @@ class Workbook(models.Model):
         indexes = [
             models.Index(fields=["uploaded_at"]),
             models.Index(fields=["status"]),
+            models.Index(fields=["handle"]),
         ]
-
-    def __str__(self):
-        return self.filename or (self.file.name if self.file else f"workbook#{self.pk}")
+        constraints = [
+            models.UniqueConstraint(
+                fields=["handle", "period_date"],
+                name="uniq_workbook_handle_period"
+            )
+        ]
 
 
 class ImportBatch(models.Model):
@@ -144,7 +173,13 @@ class Dataset(models.Model):
     primary_key = models.JSONField(default=dict, blank=True)
     meta = models.JSONField(default=dict, blank=True)
     period_date = models.DateField(null=True, blank=True, db_index=True)
-    created_at = models.DateTimeField(null=True, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True, null=True, blank=True)
+    # NEW: публикация датасета и его версия (для аналитики/аудита)
+    STATUS_DRAFT = "draft"
+    STATUS_APPROVED = "approved"
+    STATUS_CHOICES = [(STATUS_DRAFT, "draft"), (STATUS_APPROVED, "approved")]
+    status = models.CharField(max_length=16, choices=STATUS_CHOICES, default=STATUS_APPROVED, db_index=True)
+    version = models.PositiveIntegerField(default=1, db_index=True)
 
     def __str__(self):
         return f"{self.name} (#{self.pk})"
@@ -162,3 +197,20 @@ class DatasetRow(models.Model):
 
     def __str__(self):
         return f"row#{self.pk} / ds#{self.dataset_id}"
+
+
+# NEW: аудит строк с оптимистической блокировкой
+class DatasetRowRevision(models.Model):
+    row = models.ForeignKey(DatasetRow, on_delete=models.CASCADE, related_name='revisions')
+    version = models.PositiveIntegerField()  # номер ревизии строки
+    data_before = models.JSONField()
+    data_after = models.JSONField()
+    changed_by = models.ForeignKey("auth.User", null=True, on_delete=models.SET_NULL)
+    changed_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        unique_together = [("row", "version")]
+        indexes = [
+            models.Index(fields=["row", "version"]),
+            models.Index(fields=["changed_at"]),
+        ]

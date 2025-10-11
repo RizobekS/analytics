@@ -4,6 +4,8 @@ from django.db.models import Count
 from django.views.generic import TemplateView
 from rest_framework.views import APIView
 from rest_framework.response import Response
+
+from .views_resolve import format_client_date
 from ingest.models import Dataset
 from web_project import TemplateLayout
 
@@ -17,7 +19,7 @@ class DatasetList(APIView):
             {
                 "id": d.id,
                 "name": d.name,
-                "period_date": d.period_date.isoformat() if d.period_date else None,
+                "period_date": format_client_date(d.period_date),
                 "rows_count": d.rows_count,
             }
             for d in qs.order_by('id')

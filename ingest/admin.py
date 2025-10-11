@@ -8,7 +8,7 @@ from django.urls import path
 from django.shortcuts import redirect
 from django.utils.html import format_html
 
-from .models import Workbook, Dataset, DatasetRow, DataTemplate, ColumnMapping
+from .models import Workbook, Dataset, DatasetRow, DataTemplate, ColumnMapping, DatasetRowRevision, HandleRegistry
 from analytics.tasks import import_excel_task
 
 
@@ -17,7 +17,7 @@ from analytics.tasks import import_excel_task
 class ColumnMappingInline(admin.TabularInline):
     model = ColumnMapping
     extra = 1
-    fields = ("canonical_key", "aliases", "dtype", "required")
+    fields = ("canonical_key", "aliases", "dtype", "required", "min_value", "max_value", "regex", "choices")
     show_change_link = True
 
 @admin.register(DataTemplate)
@@ -33,6 +33,13 @@ class DataTemplateAdmin(admin.ModelAdmin):
     @admin.display(description="Обязательных")
     def required_count(self, obj):
         return obj.mappings.filter(required=True).count()
+
+
+@admin.register(HandleRegistry)
+class HandleRegistryAdmin(admin.ModelAdmin):
+    list_display = ("handle", "title", "order_index", "group", "visible")
+    list_editable = ("title", "order_index", "group", "visible")
+    search_fields = ("handle", "title", "group")
 
 
 # ---------- EXPORT ----------
@@ -69,17 +76,38 @@ class DatasetRowAdmin(ImportExportModelAdmin):
         return qs, use_distinct
 
 
+@admin.action(description="Опубликовать выбранные датасеты (draft → approved)")
+def publish_datasets(modeladmin, request, queryset):
+    updated = 0
+    for ds in queryset:
+        if ds.status != Dataset.STATUS_APPROVED:
+            ds.status = Dataset.STATUS_APPROVED
+            # версию можно увеличивать по вашей бизнес-логике
+            ds.version = ds.version or 1
+            ds.save(update_fields=["status", "version"])
+            updated += 1
+    messages.success(request, f"Опубликовано: {updated} датасетов")
+
+
 @admin.register(Dataset)
 class DatasetAdmin(admin.ModelAdmin):
-    list_display = ("name", "id", "period_date", "created_at", "rows_count")
-    list_filter = ("period_date", )
-    date_hierarchy = "period_date"
+    list_display = ("name", "id", "sheet", "status", "version", "created_at", "rows_count")
+    list_filter  = ("status", "sheet__workbook__handle")
     search_fields = ("name",)
     fields = ("name", "sheet", "period_date", "inferred_schema", "primary_key", "meta")
+
+    actions = [publish_datasets]
 
     def rows_count(self, obj):
 
         return obj.rows.count()
+
+
+@admin.register(DatasetRowRevision)
+class DatasetRowRevisionAdmin(admin.ModelAdmin):
+    list_display = ("id", "row_id", "version", "changed_by", "changed_at")
+    list_filter  = ("changed_by",)
+    readonly_fields = ("row", "version", "data_before", "data_after", "changed_by", "changed_at")
 
 
 @admin.action(description="Импортировать выбранные таблицы")
@@ -122,11 +150,11 @@ def import_selected_workbooks(modeladmin, request, queryset):
 # ---------- UPLOAD + IMPORT ----------
 @admin.register(Workbook)
 class WorkbookAdmin(admin.ModelAdmin):
-    list_display = ("id", "filename", "status", "template", "auto_template", "sha256_short", "uploaded_at")
+    list_display = ("id", "filename", "handle", "status", "period_date", "template", "auto_template", "sha256_short", "uploaded_at")
     list_filter = ("status", "template", "auto_template")
-    search_fields = ("filename", "sha256")
+    search_fields = ("filename", "handle")
     fields = (
-        "file", "filename", "status", "sha256",
+        "file", "filename", "status", "sha256", "handle", "period_date",
         "template", "auto_template", "sheets", "header_row",
     )
     readonly_fields = ("status", "sha256")
