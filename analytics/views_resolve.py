@@ -10,6 +10,21 @@ from ingest.models import Workbook, Dataset, DatasetRow, HandleRegistry
 # ---------------------------
 # Date helpers (DD.MM.YYYY <-> date)
 # ---------------------------
+def _merge_rows_data(rows):
+    """
+    Слить несколько DatasetRow в один словарь.
+    - Берём ТОЛЬКО dict-подобные data.
+    - Если внутри data лежит {"parsed": {...}}, то берём data["parsed"].
+    - Идём от старых к новым, чтобы новые значения перезаписывали старые.
+    """
+    merged = {}
+    for r in reversed(rows):  # старые → новые
+        d = r.data or {}
+        if isinstance(d, dict) and "parsed" in d and isinstance(d["parsed"], dict):
+            d = d["parsed"]
+        if isinstance(d, dict):
+            merged.update(d)
+    return merged
 
 def parse_client_date(s: str | None):
     if not s:
@@ -178,16 +193,12 @@ class ResolveRowsView(APIView):
     GET /api/datasets/resolve/rows/?handle=<slug>&latest=1
     GET /api/datasets/resolve/rows/?handle=<slug>&date=DD.MM.YYYY
       Параметры (опц.):
-        - limit: int (default 5000, max 50_000)
-        - start_row: int (id строки, с которой начать выборку)
-        - single: 1 → вернуть единый объект (если строк одна — тоже объект)
-    Ответ:
-      - массив строк [{id,data,imported_at},...] (id DESC)
-      - или единый объект с метаданными карточки при ?single=1:
-        {
-          handle, title, order_index, group, period, status, version, icon, color,
-          id, data, imported_at
-        }
+        - aggregate: 0|1  (по умолчанию 1) — слить все строки в один словарь
+        - limit: int      — если aggregate=0, максимум строк (по умолчанию 5000, макс. 50_000)
+        - start_row: int  — id, с которого читать (только при aggregate=0)
+        - single: 1       — вернуть единый объект (мета + данные)
+
+    По умолчанию aggregate=1 → всегда "один словарь" по датасету.
     """
     permission_classes = [IsAuthenticated]
 
@@ -197,13 +208,46 @@ class ResolveRowsView(APIView):
             return Response({"detail": "param 'handle' is required"}, status=400)
 
         date_str = request.query_params.get("date")
+        aggregate = str(request.query_params.get("aggregate") or "1").lower() in ("1","true","yes")
+        single_mode = request.query_params.get("single") in ("1", "true", "yes")
 
         # workbook + latest dataset
         wb = _get_workbook_for(handle, date_str)
         ds = _get_dataset_for_workbook_latest(wb)
         dataset_id = ds.id
 
-        # выборка строк
+        if aggregate:
+            rows_qs = DatasetRow.objects.filter(dataset_id=dataset_id).order_by("id")
+            rows = list(rows_qs)
+            merged = _merge_rows_data(rows)
+            latest_row = rows[-1] if rows else None
+
+            obj = {
+                "id": latest_row.id if latest_row else None,
+                "data": merged,
+                "imported_at": latest_row.imported_at if latest_row else None,
+            }
+
+            # метаданные карточки
+            hr = HandleRegistry.objects.filter(handle=handle).only(
+                "title", "order_index", "group", "icon", "color"
+            ).first()
+            meta = {
+                "handle": handle,
+                "title": (hr.title if hr and hr.title else handle),
+                "order_index": (hr.order_index if hr else None),
+                "group": (hr.group if hr else ""),
+                "period": format_client_date(getattr(wb, "period_date", None)),
+                "status": ds.status,
+                "version": ds.version,
+                "icon": (hr.icon if hr else ""),
+                "color": (hr.color if hr else ""),
+                "rows_count": len(rows),
+            }
+            meta.update(obj)
+            return Response(meta if single_mode or True else [meta])  # всегда один объект при aggregate=1
+
+        # ----- aggregate=0: как раньше, массив строк, но в data — что в БД -----
         try:
             limit = int(request.query_params.get("limit", 5000))
         except ValueError:
@@ -215,20 +259,16 @@ class ResolveRowsView(APIView):
         except ValueError:
             start_row = 0
 
-        single_mode = request.query_params.get("single") in ("1", "true", "yes")
-
-        # главное изменение: строки отдаем по -id (самые свежие первыми)
-        qs = DatasetRow.objects.filter(dataset_id=dataset_id).order_by("-id")
+        qs = DatasetRow.objects.filter(dataset_id=dataset_id).order_by("id")
         if start_row > 0:
             qs = qs.filter(id__gte=start_row)
         qs = qs[:limit]
 
-        rows = [{"id": r.id, "data": r.data, "imported_at": r.imported_at} for r in qs]
+        rows = [{"id": r.id, "data": (r.data or {}), "imported_at": r.imported_at} for r in qs]
 
         if single_mode or len(rows) == 1:
+            # метаданные карточки
             row_obj = rows[0] if rows else {}
-
-            # метаданные карточки (как в /dashboard/cards/rows)
             hr = HandleRegistry.objects.filter(handle=handle).only(
                 "title", "order_index", "group", "icon", "color"
             ).first()

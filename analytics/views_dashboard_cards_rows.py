@@ -2,6 +2,7 @@
 from rest_framework.views import APIView
 from rest_framework.response import Response
 from rest_framework.permissions import IsAuthenticated
+from django.db.models import QuerySet
 
 from ingest.models import HandleRegistry, DatasetRow, Dataset
 from .views_resolve import resolve_dataset_id, parse_client_date, format_client_date
@@ -105,7 +106,7 @@ class DashboardCardsRowsView(APIView):
       [&include=schema,style]
       [&only_with_dataset=1]
       [&row=latest|first]         # какую строку подставлять (по умолчанию latest)
-      [&limit=<N>]                # сколько строк сетки Luckysheet вернуть внутри data.luckysheet.data
+      [&orws_limit=<N>]                # сколько строк вернуть внутри data
       [&trim=0|1]                 # обрезать пустые хвосты (по умолчанию 1)
 
     Возвращает отсортированный список карточек без массива rows.
@@ -124,11 +125,27 @@ class DashboardCardsRowsView(APIView):
         only_with_dataset = request.query_params.get("only_with_dataset") in ("1", "true", "yes")
         include = set((request.query_params.get("include") or "").split(",")) if request.query_params.get("include") else set()
 
+        # режим одной строки (как раньше): latest|first
         row_mode = (request.query_params.get("row") or "latest").lower()
         if row_mode not in ("latest", "first"):
             row_mode = "latest"
 
-        # параметры "урезания" Luckysheet
+        # НОВОЕ: вернуть весь набор строк?
+        rows_mode = (request.query_params.get("rows") or "none").lower()  # none|all
+        if rows_mode not in ("none", "all"):
+            rows_mode = "none"
+
+        # лимиты/порядок для rows=all
+        try:
+            rows_limit = int(request.query_params.get("rows_limit") or 5000)
+        except ValueError:
+            rows_limit = 5000
+        rows_limit = max(1, min(50000, rows_limit))
+
+        rows_order = (request.query_params.get("rows_order") or "asc").lower()
+        if rows_order not in ("asc", "desc"):
+            rows_order = "asc"
+
         try:
             grid_limit = request.query_params.get("limit")
             max_rows = int(grid_limit) if grid_limit is not None else None
@@ -170,12 +187,6 @@ class DashboardCardsRowsView(APIView):
             ds = Dataset.objects.select_related("sheet__workbook").only("id", "status", "version", "sheet_id").get(id=dataset_id)
             period = getattr(ds.sheet.workbook, "period_date", None)
 
-            # 3) выбираем одну строку
-            if row_mode == "latest":
-                row = DatasetRow.objects.filter(dataset_id=dataset_id).order_by("-id").first()
-            else:
-                row = DatasetRow.objects.filter(dataset_id=dataset_id).order_by("id").first()
-
             payload = {
                 "handle": hr.handle,
                 "title": hr.title or hr.handle,
@@ -188,17 +199,23 @@ class DashboardCardsRowsView(APIView):
                 "color": hr.color,
             }
 
+            # 3а) одна строка (совместимость)
+            row = None
+            if row_mode == "latest":
+                row = DatasetRow.objects.filter(dataset_id=dataset_id).order_by("-id").first()
+            else:
+                row = DatasetRow.objects.filter(dataset_id=dataset_id).order_by("id").first()
             if row:
-                # копия данных, чтобы не трогать исходник
-                data_obj = row.data
-                if isinstance(data_obj, dict) and "luckysheet" in data_obj and (max_rows is not None or trim):
-                    ls = data_obj.get("luckysheet")
-                    data_obj = dict(data_obj)
-                    data_obj["luckysheet"] = _shrink_luckysheet(ls, max_rows=max_rows, trim=trim)
-
                 payload["id"] = row.id
-                payload["data"] = data_obj
+                payload["data"] = row.data or {}
                 payload["imported_at"] = row.imported_at
+
+            # 3б) НОВОЕ: полный массив строк (по запросу rows=all)
+            if rows_mode == "all":
+                qs_rows: QuerySet = DatasetRow.objects.filter(dataset_id=dataset_id)
+                qs_rows = qs_rows.order_by("id" if rows_order == "asc" else "-id")[:rows_limit]
+                rows = [{"id": r.id, "data": (r.data or {}), "imported_at": r.imported_at} for r in qs_rows]
+                payload["rows"] = rows
 
             if "schema" in include:
                 payload["schema"] = {"columns": []}

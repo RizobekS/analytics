@@ -1,4 +1,5 @@
 # ingest/models.py
+from django.conf import settings
 from django.contrib.postgres.fields import ArrayField
 from django.db import models
 from datetime import datetime
@@ -51,6 +52,7 @@ def excel_upload_to(instance, filename):
 
 
 class HandleRegistry(models.Model):
+    allowed_users = models.ManyToManyField(settings.AUTH_USER_MODEL, blank=True, related_name="allowed_handles")
     handle = models.SlugField(max_length=64, unique=True, db_index=True)
     title = models.CharField(max_length=255, blank=True, default="")
     order_index = models.IntegerField(default=1000, db_index=True)  # порядок карточек

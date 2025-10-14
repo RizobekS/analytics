@@ -37,9 +37,16 @@ class DataTemplateAdmin(admin.ModelAdmin):
 
 @admin.register(HandleRegistry)
 class HandleRegistryAdmin(admin.ModelAdmin):
-    list_display = ("handle", "title", "order_index", "group", "visible")
+    list_display  = ("handle", "title", "order_index", "group", "visible")
     list_editable = ("title", "order_index", "group", "visible")
     search_fields = ("handle", "title", "group")
+    filter_horizontal = ("allowed_users",)
+
+    fields = (
+        "handle", "title", "order_index", "group", "visible",
+        "icon", "color", "style_json",
+        "allowed_users",
+    )
 
 
 # ---------- EXPORT ----------
@@ -59,7 +66,6 @@ class DatasetRowAdmin(ImportExportModelAdmin):
     list_display = ("id", "dataset", "imported_at", "short_data")
     list_filter = ("dataset",)
     date_hierarchy = "imported_at"
-    # search_fields = ("data",)  # может работать нестабильно; сделаем кастомно
 
     @admin.display(description="data (short)")
     def short_data(self, obj):

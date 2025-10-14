@@ -16,6 +16,7 @@ from .views_editable_resolve import (
     EditableResolveRowsView,
 )
 from .views_dashboard_cards_rows import DashboardCardsRowsView
+from .views_ingest_upload import UploadXLSXView
 
 router = DefaultRouter()
 router.register(r"datasets", DatasetViewSet, basename="dataset")
@@ -35,6 +36,7 @@ urlpatterns = [
     path("editable/<int:dataset_id>/schema/", EditableSchemaView.as_view(), name="editable-schema"),
     path("editable/<int:dataset_id>/rows/",   EditableRowsView.as_view(),   name="editable-rows"),
     path("datasets/<int:dataset_id>/rows/", DatasetRowViewSet.as_view({"get": "list"}), name="dataset-rows"),
+    path("ingest/upload-xlsx", UploadXLSXView.as_view(), name="ingest-upload-xlsx"),
     # агрегатор
     path("aggregate/", AggregateView.as_view(), name="aggregate"),
     path("datasets/<int:dataset_id>/keys", DatasetKeysView.as_view(), name="dataset-keys"),
