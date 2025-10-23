@@ -8,7 +8,8 @@ from django.urls import path
 from django.shortcuts import redirect
 from django.utils.html import format_html
 
-from .models import Workbook, Dataset, DatasetRow, DataTemplate, ColumnMapping, DatasetRowRevision, HandleRegistry
+from .models import Workbook, Dataset, DatasetRow, DataTemplate, ColumnMapping, DatasetRowRevision, HandleRegistry, \
+    UploadHistory
 from analytics.tasks import import_excel_task
 
 
@@ -114,6 +115,13 @@ class DatasetRowRevisionAdmin(admin.ModelAdmin):
     list_display = ("id", "row_id", "version", "changed_by", "changed_at")
     list_filter  = ("changed_by",)
     readonly_fields = ("row", "version", "data_before", "data_after", "changed_by", "changed_at")
+
+
+@admin.register(UploadHistory)
+class UploadHistoryAdmin(admin.ModelAdmin):
+    list_display = ("user", "handle", "period_date", "action", "created_at")
+    list_filter  = ("user",)
+    readonly_fields = ("user", "workbook", "dataset", "status_before", "status_after", "created_at")
 
 
 @admin.action(description="Импортировать выбранные таблицы")

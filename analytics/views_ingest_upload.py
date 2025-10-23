@@ -1,5 +1,7 @@
 # analytics/views_ingest_upload.py
+from datetime import datetime, date
 import json
+from decimal import Decimal
 from io import BytesIO
 from django.db import transaction
 from django.utils.timezone import now
@@ -11,6 +13,7 @@ from rest_framework.parsers import MultiPartParser, FormParser
 from ingest.models import Workbook, Sheet, Dataset, DatasetRow, DatasetRowRevision, HandleRegistry
 from .views_resolve import parse_client_date, format_client_date
 from .views_common import user_can_edit_handle
+from ingest.models import UploadHistory
 
 try:
     import openpyxl
@@ -93,10 +96,22 @@ def _parse_to_records(grid, header_row: int, start_row: int):
         records.append(rec)
     return records
 
+def _normalize_for_json(obj):
+    """Рекурсивно привести данные к JSON-совместимым типам."""
+    if isinstance(obj, (datetime, date)):
+        return obj.isoformat()
+    if isinstance(obj, Decimal):
+        return float(obj)
+    if isinstance(obj, list):
+        return [_normalize_for_json(v) for v in obj]
+    if isinstance(obj, dict):
+        return {k: _normalize_for_json(v) for k, v in obj.items()}
+    return obj
+
 
 class UploadXLSXView(APIView):
     """
-    POST /api/ingest/upload-xlsx
+    POST /api/ingest/upload-xlsx/
       multipart/form-data:
         file: <xlsx>
         handle: <slug>         (обязательно)
@@ -184,34 +199,9 @@ class UploadXLSXView(APIView):
         if truncate:
             DatasetRow.objects.filter(dataset_id=ds.id).delete()
 
-        # перезаписываем одну «актуальную» строку (если есть) или создаём новую
-        existing_row = DatasetRow.objects.filter(dataset_id=ds.id).order_by("-id").first()
-        payload = {
-            "parsed": records,
-            "meta": {
-                "handle": handle,
-                "period_date": format_client_date(period_date),
-                "sheet": sheet_name,
-                "generated_at": now().isoformat(),
-                "header_row": header_row,
-                "start_row": start_row,
-            }
-        }
-
-        if existing_row and not truncate:
-            before = existing_row.data
-            existing_row.data = payload
-            existing_row.save(update_fields=["data"])
-            DatasetRowRevision.objects.create(
-                row=existing_row,
-                version=existing_row.revisions.count() + 1,
-                data_before=before,
-                data_after=existing_row.data,
-                changed_by=request.user
-            )
-            saved_id = existing_row.id
-        else:
-            r = DatasetRow.objects.create(dataset_id=ds.id, data=payload)
+        saved_ids = []
+        for rec in _normalize_for_json(records):
+            r = DatasetRow.objects.create(dataset_id=ds.id, data=rec)
             DatasetRowRevision.objects.create(
                 row=r,
                 version=1,
@@ -219,12 +209,49 @@ class UploadXLSXView(APIView):
                 data_after=r.data,
                 changed_by=request.user
             )
-            saved_id = r.id
+            saved_ids.append(r.id)
+
+        # --- лог в историю ---
+        UploadHistory.objects.create(
+            user=request.user,
+            handle=handle,
+            period_date=period_date,
+            workbook=wb,
+            dataset=ds,
+            filename=wb.filename,
+            rows_count=len(saved_ids),
+            action=UploadHistory.ACTION_TRUNCATE_UPLOAD if truncate else UploadHistory.ACTION_UPLOAD,
+            extra={
+                "sheet": sheet_name,
+                "header_row": header_row,
+                "start_row": start_row,
+                "max_rows": max_rows,
+            },
+        )
+
+        changed = truncate or bool(saved_ids)
+        if changed and ds.status == Dataset.STATUS_APPROVED:
+            before = ds.status
+            ds.status = Dataset.STATUS_DRAFT
+            ds.save(update_fields=["status"])
+            UploadHistory.objects.create(
+                user=request.user,
+                handle=handle,
+                period_date=period_date,
+                workbook=wb,
+                dataset=ds,
+                filename=wb.filename,
+                rows_count=ds.rows.count(),
+                action=UploadHistory.ACTION_STATUS_CHANGE,
+                status_before=before,
+                status_after=ds.status,
+                extra={"reason": "auto-draft on data change via upload-xlsx"}
+            )
 
         return Response({
             "dataset_id": ds.id,
             "workbook_id": wb.id,
-            "saved_id": saved_id,
+            "saved_ids": saved_ids,
             "count": len(records),
             "period_date": format_client_date(period_date),
             "filename": wb.filename,

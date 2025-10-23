@@ -2,6 +2,7 @@ from rest_framework import serializers
 
 from .models import ChartConfig, Dashboard
 from ingest.models import Dataset, DatasetRow, HandleRegistry, Workbook
+from .views_common import user_can_edit_handle
 from .views_resolve import format_client_date
 
 
@@ -25,22 +26,13 @@ class DatasetRowSerializer(serializers.ModelSerializer):
         fields = ["id", "data", "imported_at"]
 
 
-class ChartConfigSerializer(serializers.ModelSerializer):
-    class Meta:
-        model = ChartConfig
-        fields = "__all__"
-
-class DashboardSerializer(serializers.ModelSerializer):
-    charts = ChartConfigSerializer(many=True, read_only=True)
-    class Meta:
-        model = Dashboard
-        fields = "__all__"
-
-
 class HandleRegistrySerializer(serializers.ModelSerializer):
-    # дополнительные, вычисляемые поля
     periods = serializers.SerializerMethodField()
+    periods_detailed = serializers.SerializerMethodField()
+    editable = serializers.SerializerMethodField()
+    can_upload = serializers.SerializerMethodField()
     fullname = serializers.SerializerMethodField()
+    allowed_user_ids = serializers.SerializerMethodField()  # по запросу include=users
 
     class Meta:
         model = HandleRegistry
@@ -54,24 +46,102 @@ class HandleRegistrySerializer(serializers.ModelSerializer):
             "icon",
             "color",
             "style_json",
-            # новые:
+            # вычисляемые:
             "fullname",
             "periods",
+            "editable",
+            "can_upload",
+            "allowed_user_ids",
+            "periods_detailed",
         ]
 
-    def get_fullname(self, obj):
-        # читаемое имя таблицы для сайдбара
+    def get_fullname(self, obj: HandleRegistry):
+        # Последнее "человеческое" имя файла из Workbook, иначе title/handle
         qs = (Workbook.objects
               .filter(handle=obj.handle)
               .values_list("filename", flat=True)
               .order_by("-period_date", "-id"))
-        return [f for f in qs if f]
+        last = next((f for f in qs if f), None)
+        return last or (obj.title or obj.handle)
 
-    def get_periods(self, obj):
-        # список всех периодов по handle, отсортированных по убыванию
-        qs = (Workbook.objects
-              .filter(handle=obj.handle)
-              .values_list("period_date", flat=True)
-              .order_by("-period_date", "-id"))
-        # форматируем под фронт (DD.MM.YYYY), убираем None
-        return [format_client_date(d) for d in qs if d]
+    def get_periods(self, obj: HandleRegistry):
+        """
+        Возвращает список дат-периодов с учётом фильтра статуса (?status=approved|draft|all).
+        По умолчанию — только approved (как и в periods_detailed).
+        """
+        req = self.context.get("request")
+        status_filter = (req.query_params.get("status") or "approved").lower() if req else "approved"
+        if status_filter not in ("approved", "draft", "all"):
+            status_filter = "approved"
+
+        # Базовый список всех воркбуков по handle в порядке убывания даты
+        wbs = (Workbook.objects
+               .filter(handle=obj.handle)
+               .order_by("-period_date", "-id"))
+
+        # Если all — оставляем прежнее поведение (все даты)
+        if status_filter == "all":
+            return [format_client_date(d) for d in wbs.values_list("period_date", flat=True) if d]
+
+        # Иначе — включаем дату только если для этого воркбука есть датасет с нужным статусом
+        periods = []
+        for wb in wbs:
+            ds_exists = Dataset.objects.filter(sheet__workbook=wb, status=(
+                Dataset.STATUS_APPROVED if status_filter == "approved" else Dataset.STATUS_DRAFT
+            )).exists()
+            if ds_exists and wb.period_date:
+                periods.append(format_client_date(wb.period_date))
+        return periods
+
+    def get_editable(self, obj: HandleRegistry):
+        req = self.context.get("request")
+        return user_can_edit_handle(req.user, obj.handle) if req else False
+
+    def get_can_upload(self, obj: HandleRegistry):
+        # Пока логика совпадает с editable
+        return self.get_editable(obj)
+
+    def get_periods_detailed(self, obj: HandleRegistry):
+        req = self.context.get("request")
+        include = (req.query_params.get("include") or "").split(",") if req else []
+        if "periods_detailed" not in [s.strip() for s in include]:
+            return None
+
+        # NEW: фильтр статуса из query (?status=approved|draft|all), по умолчанию approved
+        status_filter = (req.query_params.get("status") or "approved").lower() if req else "approved"
+        if status_filter not in ("approved", "draft", "all"):
+            status_filter = "approved"
+
+        items = []
+        wbs = Workbook.objects.filter(handle=obj.handle).order_by("-period_date", "-id")
+        for wb in wbs:
+            ds_qs = Dataset.objects.filter(sheet__workbook=wb).order_by("-created_at", "-id")
+            if status_filter == "approved":
+                ds = ds_qs.filter(status=Dataset.STATUS_APPROVED).first()
+            elif status_filter == "draft":
+                ds = ds_qs.filter(status=Dataset.STATUS_DRAFT).first()
+            else:
+                ds = ds_qs.first()
+
+            # если требуется фильтрация по конкретному статусу и датасета нет — пропускаем
+            if status_filter in ("approved", "draft") and ds is None:
+                continue
+
+            items.append({
+                "period_date": format_client_date(wb.period_date),
+                "dataset_id": ds.id if ds else None,
+                "status": ds.status if ds else None,
+                "version": ds.version if ds else None,
+            })
+        return items
+
+    def get_allowed_user_ids(self, obj: HandleRegistry):
+        """
+        Только если ?include=users — иначе возвращаем None (и DRF не положит поле).
+        Это удобно, чтобы не тянуть M2M всегда.
+        """
+        req = self.context.get("request")
+        include = (req.query_params.get("include") or "").split(",") if req else []
+        if "users" not in [s.strip() for s in include]:
+            return None
+        return list(obj.allowed_users.values_list("username", flat=True))

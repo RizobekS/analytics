@@ -216,3 +216,41 @@ class DatasetRowRevision(models.Model):
             models.Index(fields=["row", "version"]),
             models.Index(fields=["changed_at"]),
         ]
+
+
+class UploadHistory(models.Model):
+    ACTION_UPLOAD = "upload"
+    ACTION_TRUNCATE_UPLOAD = "truncate_upload"
+    ACTION_STATUS_CHANGE = "status_change"
+
+    ACTION_CHOICES = [
+        (ACTION_UPLOAD, "upload"),
+        (ACTION_TRUNCATE_UPLOAD, "truncate_upload"),
+        (ACTION_STATUS_CHANGE, "status_change"),
+    ]
+
+    user = models.ForeignKey("auth.User", null=True, on_delete=models.SET_NULL, related_name="upload_events")
+    handle = models.SlugField(max_length=64, db_index=True)
+    period_date = models.DateField(null=True, blank=True, db_index=True)
+
+    workbook = models.ForeignKey(Workbook, null=True, blank=True, on_delete=models.SET_NULL)
+    dataset = models.ForeignKey(Dataset,  null=True, blank=True, on_delete=models.SET_NULL)
+
+    filename = models.CharField(max_length=255, blank=True, default="")
+    rows_count = models.PositiveIntegerField(default=0)
+
+    action = models.CharField(max_length=32, choices=ACTION_CHOICES)
+    status_before = models.CharField(max_length=16, blank=True, default="")
+    status_after  = models.CharField(max_length=16, blank=True, default="")
+
+    extra = models.JSONField(default=dict, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True, db_index=True)
+
+    class Meta:
+        indexes = [
+            models.Index(fields=["handle", "period_date", "created_at"]),
+            models.Index(fields=["action", "created_at"]),
+        ]
+
+    def __str__(self):
+        return f"[{self.created_at:%Y-%m-%d %H:%M}] {self.user_id} {self.action} {self.handle} {self.period_date}"
