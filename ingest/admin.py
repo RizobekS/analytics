@@ -101,7 +101,7 @@ class DatasetAdmin(admin.ModelAdmin):
     list_display = ("name", "id", "sheet", "status", "version", "created_at", "rows_count")
     list_filter  = ("status", "sheet__workbook__handle")
     search_fields = ("name",)
-    fields = ("name", "sheet", "period_date", "inferred_schema", "primary_key", "meta")
+    fields = ("name", "sheet", "period_date", "status", "inferred_schema", "primary_key", "meta")
 
     actions = [publish_datasets]
 
