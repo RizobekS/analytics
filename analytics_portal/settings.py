@@ -35,6 +35,7 @@ INSTALLED_APPS = [
     'allauth.socialaccount',
     'allauth.socialaccount.providers.google',
     'allauth.socialaccount.providers.nextcloud',
+    "egovuz_provider",
     'rest_framework',
     'django_filters',
     'django.contrib.postgres',
@@ -120,19 +121,19 @@ SOCIALACCOUNT_ADAPTER = "analytics.adapters.NoSignupSocialAdapter"
 SOCIALACCOUNT_AUTO_SIGNUP = False
 
 # === allauth: логинимся по email ===
-ACCOUNT_AUTHENTICATION_METHOD = "email"
-ACCOUNT_EMAIL_REQUIRED = True
-ACCOUNT_USERNAME_REQUIRED = False
+ACCOUNT_LOGIN_METHODS = {'username', 'email'}
+ACCOUNT_EMAIL_REQUIRED = False
+ACCOUNT_USERNAME_REQUIRED = True
+ACCOUNT_SIGNUP_ENABLED = False
 ACCOUNT_EMAIL_VERIFICATION = "optional"   # 'mandatory' если с подтверждением
-ACCOUNT_LOGIN_ATTEMPTS_LIMIT = 5
-ACCOUNT_LOGIN_ATTEMPTS_TIMEOUT = 300
+ACCOUNT_RATE_LIMITS = {"login_failed": "5/1m;20/1h", "password_reset": "5/1h",}
 ACCOUNT_SESSION_REMEMBER = True
 ACCOUNT_LOGOUT_ON_PASSWORD_CHANGE = True
 ACCOUNT_DEFAULT_HTTP_PROTOCOL = "http"  # на проде/в dev можно "http"
 
 ACCOUNT_FORMS = {
     "login": "analytics.auth_form.BSLoginForm",
-    "signup": "analytics.auth_form.BSSignupForm",
+    #"signup": "analytics.auth_form.BSSignupForm",
     "reset_password": "analytics.auth_form.BSResetPasswordForm",
 }
 

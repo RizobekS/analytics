@@ -21,16 +21,22 @@ class NoSignupSocialAdapter(DefaultSocialAccountAdapter):
         if sociallogin.is_existing:
             return
 
-        # Пытаемся найти существующего пользователя по email.
-        email = (sociallogin.user and sociallogin.user.email) or \
-                sociallogin.account.extra_data.get("email")
-        if not email:
-            return  # без почты не привяжем
+        data = sociallogin.account.extra_data or {}
+        email = (sociallogin.user and sociallogin.user.email) or data.get("email")
+        username = (sociallogin.user and sociallogin.user.username) or data.get("user_id") or data.get("pin")
 
-        try:
-            user = User.objects.get(email__iexact=email)
-        except User.DoesNotExist:
-            return  # нет такого пользователя — signup запрещён
+        user = None
+        if email:
+            try:
+                user = User.objects.get(email__iexact=email)
+            except User.DoesNotExist:
+                pass
 
-        # Привязать этот соц.логин к найденному пользователю и авторизовать.
-        sociallogin.connect(request, user)
+        if not user and username:
+            try:
+                user = User.objects.get(username__iexact=username)
+            except User.DoesNotExist:
+                pass
+
+        if user:
+            sociallogin.connect(request, user)

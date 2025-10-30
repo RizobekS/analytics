@@ -1,0 +1,1 @@
+default_app_config = "egovuz_provider.apps.EgovuzProviderConfig"
