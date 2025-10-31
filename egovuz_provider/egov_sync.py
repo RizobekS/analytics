@@ -5,10 +5,10 @@ from allauth.socialaccount.models import SocialAccount
 from django.utils import timezone
 
 def _extract_egov_fields(extra):
-    # приведём ключи к нашему профилю
+    pin = (extra.get("pin") or "").strip()
     return {
-        "egov_uid": extra.get("user_id") or extra.get("pin"),
-        "pin": extra.get("pin"),
+        "egov_uid":(extra.get("user_id") or pin),
+        "pin": pin,
         "full_name": extra.get("full_name"),
         "first_name": extra.get("first_name") or extra.get("name"),
         "last_name": extra.get("sur_name"),
