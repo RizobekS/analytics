@@ -16,6 +16,7 @@ from allauth.socialaccount.providers.oauth2.views import (
     OAuth2Adapter, OAuth2CallbackView
 )
 from allauth.socialaccount.helpers import complete_social_login
+from django.utils.http import url_has_allowed_host_and_scheme
 from allauth.utils import get_request_param
 from django.db.models import Q
 from .models import UserProfile
@@ -85,8 +86,17 @@ def broker_login(request):
     state = secrets.token_urlsafe(16)
     request.session["egov_state"] = state
 
+    # берём next из query, валидируем и складываем в сессию
+    raw_next = request.GET.get("next")
+    default_next = getattr(settings, "BASE_URL", "/")
+    if raw_next and url_has_allowed_host_and_scheme(raw_next, allowed_hosts={request.get_host()}, require_https=True):
+        request.session["egov_next"] = raw_next
+    else:
+        # можно разрешить абсолютный URL на фронт (домен фронта)
+        request.session["egov_next"] = default_next
+
     callback = BROKER_REDIRECT_URL or request.build_absolute_uri(
-        reverse("egovuz_callback")  # это "accounts/egovuz/callback/"
+        reverse("egovuz_callback")
     )
 
     params = {"redirect_url": callback, "state": state}
@@ -174,13 +184,8 @@ class EgovUzCallbackBrokerView(OAuth2CallbackView):
         profile.egov_uid = data.get("uid") or profile.pin
         profile.save()
 
-        return JsonResponse({
-            "status": "success",
-            "username": user.username,
-            "full_name": profile.full_name,
-            "pin": profile.pin,
-            "egov_uid": profile.egov_uid,
-        })
+        target = request.session.pop("egov_next", None) or getattr(settings, "BASE_URL", "/")
+        return HttpResponseRedirect(target)
 
 oauth2_callback_broker = EgovUzCallbackBrokerView.adapter_view(EgovUzOAuth2Adapter)
 
