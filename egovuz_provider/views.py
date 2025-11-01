@@ -9,6 +9,7 @@ import requests
 from urllib.parse import urlencode
 from django.conf import settings
 from django.http import HttpResponseBadRequest, HttpResponseRedirect, JsonResponse
+from django.utils import timezone
 
 from allauth.socialaccount.models import SocialToken
 from allauth.socialaccount.providers.oauth2.client import OAuth2Client
@@ -158,16 +159,30 @@ class EgovUzCallbackBrokerView(OAuth2CallbackView):
             .first()
         )
         if not profile:
-            # Диагностика: вернём что реально пришло, чтобы сразу увидеть различия
-            return JsonResponse(
-                {
-                    "status": "no_match",
-                    "reason": "user not registered in local DB",
-                    "received_uid": uid,
-                    "raw_profile": data,  # что дал OneID (без секретов)
-                },
-                status=403,
+            # --- Если пользователь не найден ---
+            target = request.session.pop("egov_next", None) or getattr(settings, "BASE_URL", "/")
+            # Добавим статус в URL, чтобы фронт понял результат
+            redirect_url = f"{target}?status=no_match"
+
+            # если фронт явно запросил JSON — отдаём JSON
+            wants_json = (
+                    request.GET.get("format") == "json"
+                    or "application/json" in (request.headers.get("Accept") or "")
+                    or request.headers.get("X-Requested-With") == "XMLHttpRequest"
             )
+            if wants_json:
+                return JsonResponse(
+                    {
+                        "status": "no_match",
+                        "reason": "user not registered in local DB",
+                        "received_uid": uid,
+                        "raw_profile": data,
+                        "redirect": redirect_url,
+                    },
+                    status=403,
+                )
+
+            return HttpResponseRedirect(redirect_url)
         pin = (data.get("pin") or "").strip()
         user = profile.user
 
@@ -182,6 +197,7 @@ class EgovUzCallbackBrokerView(OAuth2CallbackView):
         profile.last_name = data.get("sur_name") or profile.last_name
         profile.middle_name = data.get("mid_name") or profile.middle_name
         profile.egov_uid = data.get("uid") or profile.pin
+        profile.last_sync = timezone.now()
         profile.save()
 
         wants_json = (
@@ -190,6 +206,9 @@ class EgovUzCallbackBrokerView(OAuth2CallbackView):
                 or request.headers.get("X-Requested-With") == "XMLHttpRequest"
         )
 
+        target = request.session.pop("egov_next", None) or getattr(settings, "BASE_URL", "/")
+        redirect_url = f"{target}?status=success"
+
         if wants_json:
             return JsonResponse({
                 "status": "success",
@@ -197,10 +216,10 @@ class EgovUzCallbackBrokerView(OAuth2CallbackView):
                 "full_name": profile.full_name,
                 "pin": profile.pin,
                 "egov_uid": profile.egov_uid,
+                "redirect": redirect_url,
             })
 
-        target = request.session.pop("egov_next", None) or getattr(settings, "BASE_URL", "/")
-        return HttpResponseRedirect(target)
+        return HttpResponseRedirect(redirect_url)
 
 oauth2_callback_broker = EgovUzCallbackBrokerView.adapter_view(EgovUzOAuth2Adapter)
 
