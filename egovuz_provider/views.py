@@ -184,6 +184,21 @@ class EgovUzCallbackBrokerView(OAuth2CallbackView):
         profile.egov_uid = data.get("uid") or profile.pin
         profile.save()
 
+        wants_json = (
+                request.GET.get("format") == "json"
+                or "application/json" in (request.headers.get("Accept") or "")
+                or request.headers.get("X-Requested-With") == "XMLHttpRequest"
+        )
+
+        if wants_json:
+            return JsonResponse({
+                "status": "success",
+                "username": user.username,
+                "full_name": profile.full_name,
+                "pin": profile.pin,
+                "egov_uid": profile.egov_uid,
+            })
+
         target = request.session.pop("egov_next", None) or getattr(settings, "BASE_URL", "/")
         return HttpResponseRedirect(target)
 

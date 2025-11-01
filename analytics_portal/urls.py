@@ -32,9 +32,6 @@ def csrf_view(request):
             "headerName": "X-CSRFToken",
             "path": getattr(settings, "CSRF_COOKIE_PATH", "/"),
             "secure": bool(getattr(settings, "CSRF_COOKIE_SECURE", False)),
-            "httpOnly": False,  # CSRF-cookie по умолчанию НЕ HttpOnly (так фронт может прочитать при необходимости)
-            "sameSite": getattr(settings, "CSRF_COOKIE_SAMESITE", "Lax"),
-            "trustedOrigins": list(getattr(settings, "CSRF_TRUSTED_ORIGINS", [])),
         },
         "session": {
             "authenticated": request.user.is_authenticated,
