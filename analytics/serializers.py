@@ -1,9 +1,64 @@
+from django.contrib.auth import get_user_model
 from rest_framework import serializers
+from egovuz_provider.models import UserProfile
 
 from .models import ChartConfig, Dashboard
 from ingest.models import Dataset, DatasetRow, HandleRegistry, Workbook
 from .views_common import user_can_edit_handle
 from .views_resolve import format_client_date
+
+User = get_user_model()
+
+class UserProfileSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = UserProfile
+        fields = [
+            "egov_uid", "pin", "full_name", "first_name", "last_name",
+            "middle_name", "last_sync"
+        ]
+        read_only_fields = ["last_sync"]
+
+class UserSerializer(serializers.ModelSerializer):
+    profile = UserProfileSerializer(required=False)
+    is_superuser = serializers.BooleanField(required=False)
+    is_staff = serializers.BooleanField(required=False)
+    # для списка/деталей будет удобно видеть привязанные handles (только чтение)
+    allowed_handles = serializers.SerializerMethodField()
+
+    class Meta:
+        model = User
+        fields = [
+            "id", "username", "email", "is_active",
+            "is_superuser", "is_staff", "date_joined", "last_login",
+            "profile", "allowed_handles",
+        ]
+        read_only_fields = ["date_joined", "last_login"]
+
+    def get_allowed_handles(self, obj):
+        qs = HandleRegistry.objects.filter(allowed_users=obj).order_by("handle")
+        return [{"handle": h.handle, "title": h.title} for h in qs]
+
+    def update(self, instance, validated):
+        # вложенное обновление профиля
+        prof_data = validated.pop("profile", None)
+        user = super().update(instance, validated)
+        if prof_data is not None:
+            profile, _ = UserProfile.objects.get_or_create(user=user)
+            for k, v in prof_data.items():
+                setattr(profile, k, v)
+            profile.save()
+        return user
+
+    def create(self, validated):
+        prof_data = validated.pop("profile", None)
+        # пароль на создание отдаём отдельным методом (set_password), здесь без него
+        user = User.objects.create(**validated)
+        UserProfile.objects.get_or_create(user=user)
+        if prof_data:
+            for k, v in prof_data.items():
+                setattr(user.profile, k, v)
+            user.profile.save()
+        return user
 
 
 class DatasetSerializer(serializers.ModelSerializer):

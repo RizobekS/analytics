@@ -5,9 +5,11 @@ from .views_resolve import ResolveRowsView
 from .views_dashboard_cards_rows import DashboardCardsRowsView
 from .views_ingest_upload import UploadXLSXView
 from .views_resolve import DatasetStatusUpdateView
+from .views_users import UserViewSet
 
 router = DefaultRouter()
 router.register(r"handles", HandleRegistryViewSet, basename="handle")
+router.register(r"users", UserViewSet, basename="user")
 
 urlpatterns = [
     path("dashboard/cards/rows/", DashboardCardsRowsView.as_view(), name="dashboard-cards-rows"),
