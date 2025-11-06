@@ -5,7 +5,7 @@ from .views_resolve import ResolveRowsView
 from .views_dashboard_cards_rows import DashboardCardsRowsView
 from .views_ingest_upload import UploadXLSXView
 from .views_resolve import DatasetStatusUpdateView
-from .views_users import UserViewSet
+from .views_users import UserViewSet, CurrentUserMeView
 
 router = DefaultRouter()
 router.register(r"handles", HandleRegistryViewSet, basename="handle")
@@ -17,5 +17,6 @@ urlpatterns = [
     path("datasets/status/", DatasetStatusUpdateView.as_view(), name="dataset-status-update"),
     path("upload-history/", UploadHistoryView.as_view(), name="upload-history"),
     path("ingest/upload-xlsx/", UploadXLSXView.as_view(), name="ingest-upload-xlsx"),
+    path("auth/me/", CurrentUserMeView.as_view(), name="auth-me"),
     *router.urls,
 ]

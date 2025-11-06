@@ -4,8 +4,10 @@ from django.db import transaction
 from rest_framework import viewsets, permissions, status
 from rest_framework.decorators import action
 from rest_framework.response import Response
+from rest_framework.views import APIView
+from rest_framework.permissions import IsAuthenticated
 from ingest.models import HandleRegistry
-from .serializers import UserSerializer
+from .serializers import UserSerializer, CurrentUserSerializer
 
 User = get_user_model()
 
@@ -101,3 +103,9 @@ class UserViewSet(viewsets.ModelViewSet):
         user.is_active = False
         user.save(update_fields=["is_active"])
         return Response({"detail": "deactivated"})
+
+
+class CurrentUserMeView(APIView):
+    permission_classes = [IsAuthenticated]
+    def get(self, request):
+        return Response(CurrentUserSerializer(request.user, context={"request": request}).data)

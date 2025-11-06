@@ -1,3 +1,4 @@
+from dj_rest_auth.serializers import UserDetailsSerializer
 from django.contrib.auth import get_user_model
 from rest_framework import serializers
 from egovuz_provider.models import UserProfile
@@ -200,3 +201,60 @@ class HandleRegistrySerializer(serializers.ModelSerializer):
         if "users" not in [s.strip() for s in include]:
             return None
         return list(obj.allowed_users.values_list("username", flat=True))
+
+
+class CurrentUserSerializer(UserDetailsSerializer):
+    # эти два — чтобы фронт знал “статус” пользователя
+    is_superuser = serializers.BooleanField(read_only=True)
+    is_staff = serializers.BooleanField(read_only=True)
+
+    # группы и (опционально) пермишены
+    groups = serializers.SerializerMethodField()
+    permissions = serializers.SerializerMethodField()
+
+    # удобно отдать связанную карточку профиля OneID
+    profile = UserProfileSerializer(read_only=True)
+
+    # и что этот пользователь может редактировать (по твоей логике доступа)
+    allowed_handles = serializers.SerializerMethodField()
+
+    class Meta(UserDetailsSerializer.Meta):
+        model = User
+        fields = (
+            "pk", "username", "email", "first_name", "last_name",
+            "is_superuser", "is_staff",
+            "groups", "permissions",
+            "profile", "allowed_handles",
+        )
+
+    def get_groups(self, obj):
+        return list(obj.groups.values_list("name", flat=True))
+
+    def get_permissions(self, obj):
+        # при желании можно убрать, если не нужно
+        return list(obj.user_permissions.values_list("codename", flat=True))
+
+    def get_allowed_handles(self, obj):
+        # obj — текущий User
+        qs = HandleRegistry.objects.filter(allowed_users=obj).order_by("handle")
+
+        # Если контекст у сериализатора есть — используем его,
+        # иначе подстрахуемся и считаем права напрямую от obj.
+        req = self.context.get("request") if hasattr(self, "context") else None
+        is_super = bool(getattr(obj, "is_superuser", False))
+
+        items = []
+        for h in qs:
+            if is_super:
+                can_edit = True
+            else:
+                # без request: проверяем M2M напрямую
+                can_edit = h.allowed_users.filter(id=obj.id).exists()
+
+            items.append({
+                "handle": h.handle,
+                "title": h.title,
+                "editable": can_edit,
+                "can_upload": can_edit,  # сейчас одинаково; позже разведём логику
+            })
+        return items
