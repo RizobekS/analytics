@@ -1,3 +1,4 @@
+from allauth.account.models import EmailAddress
 from dj_rest_auth.serializers import UserDetailsSerializer
 from django.contrib.auth import get_user_model
 from rest_framework import serializers
@@ -23,7 +24,17 @@ class UserSerializer(serializers.ModelSerializer):
     profile = UserProfileSerializer(required=False)
     is_superuser = serializers.BooleanField(required=False)
     is_staff = serializers.BooleanField(required=False)
-    # для списка/деталей будет удобно видеть привязанные handles (только чтение)
+    # доп. поля для удобства создания
+    password = serializers.CharField(write_only=True, required=False, allow_blank=True)
+    email_verified = serializers.BooleanField(write_only=True, required=False, default=False)
+    groups = serializers.ListField(
+        child=serializers.CharField(), required=False, write_only=True, help_text="['superadmins', ...]"
+    )
+    handles = serializers.ListField(
+        child=serializers.CharField(), required=False, write_only=True, help_text="['1-eksport', ...]"
+    )
+
+    # только чтение — чтобы фронт видел свои доступы
     allowed_handles = serializers.SerializerMethodField()
 
     class Meta:
@@ -32,6 +43,8 @@ class UserSerializer(serializers.ModelSerializer):
             "id", "username", "email", "is_active",
             "is_superuser", "is_staff", "date_joined", "last_login",
             "profile", "allowed_handles",
+            # write-only:
+            "password", "email_verified", "groups", "handles",
         ]
         read_only_fields = ["date_joined", "last_login"]
 
@@ -39,27 +52,122 @@ class UserSerializer(serializers.ModelSerializer):
         qs = HandleRegistry.objects.filter(allowed_users=obj).order_by("handle")
         return [{"handle": h.handle, "title": h.title} for h in qs]
 
-    def update(self, instance, validated):
-        # вложенное обновление профиля
-        prof_data = validated.pop("profile", None)
-        user = super().update(instance, validated)
-        if prof_data is not None:
-            profile, _ = UserProfile.objects.get_or_create(user=user)
-            for k, v in prof_data.items():
-                setattr(profile, k, v)
-            profile.save()
-        return user
+    def _ensure_username_email(self, data: dict) -> dict:
+        """
+        Если фронт прислал только email — используем его как username.
+        Если прислал оба — оставляем как есть.
+        """
+        email = (data.get("email") or "").strip()
+        username = (data.get("username") or "").strip()
+        if email and not username:
+            data["username"] = email
+        return data
+
+    def _apply_groups(self, user: User, groups_list):
+        if not groups_list:
+            return
+        from django.contrib.auth.models import Group
+        qs = Group.objects.filter(name__in=groups_list)
+        user.groups.set(qs)
+
+    def _apply_handles(self, user: User, handles_list):
+        if not handles_list:
+            return
+        for h in HandleRegistry.objects.filter(handle__in=handles_list):
+            h.allowed_users.add(user)
+
+    def _ensure_email_address(self, user: User, email: str, verified: bool):
+        """
+        Создаём/обновляем allauth EmailAddress, чтобы allauth знал почту.
+        """
+        if not email:
+            return
+        ea, _ = EmailAddress.objects.get_or_create(user=user, email=email)
+        # если хотим сразу верифицировать корпоративную почту — ставим verified=True
+        if verified and not ea.verified:
+            ea.verified = True
+            ea.primary = True
+            ea.save()
 
     def create(self, validated):
         prof_data = validated.pop("profile", None)
-        # пароль на создание отдаём отдельным методом (set_password), здесь без него
-        user = User.objects.create(**validated)
-        UserProfile.objects.get_or_create(user=user)
+        raw_password = validated.pop("password", "") or ""
+        email_verified = bool(validated.pop("email_verified", False))
+        groups_list = validated.pop("groups", None)
+        handles_list = validated.pop("handles", None)
+
+        validated = self._ensure_username_email(validated)
+
+        # создаём пользователя
+        user = User.objects.create(
+            username=validated.get("username"),
+            email=validated.get("email"),
+            is_active=validated.get("is_active", True),
+            is_staff=validated.get("is_staff", False),
+            is_superuser=validated.get("is_superuser", False),
+        )
+        if raw_password:
+            user.set_password(raw_password)
+        else:
+            # можно оставить пустым (потом установить), либо задать unusable
+            user.set_unusable_password()
+        user.save()
+
+        # профиль OneID (PIN/egov_uid/ФИО)
+        profile, _ = UserProfile.objects.get_or_create(user=user)
         if prof_data:
             for k, v in prof_data.items():
-                setattr(user.profile, k, v)
-            user.profile.save()
+                setattr(profile, k, v)
+            profile.save()
+
+        # группы / доступы к хэндлам
+        self._apply_groups(user, groups_list)
+        self._apply_handles(user, handles_list)
+
+        # allauth EmailAddress
+        self._ensure_email_address(user, user.email, email_verified)
+
         return user
+
+    def update(self, instance, validated):
+        prof_data = validated.pop("profile", None)
+        raw_password = validated.pop("password", "") or ""
+        email_verified = bool(validated.pop("email_verified", False))
+        groups_list = validated.pop("groups", None)
+        handles_list = validated.pop("handles", None)
+
+        validated = self._ensure_username_email(validated)
+
+        # базовые поля
+        for f in ("username", "email", "is_active", "is_staff", "is_superuser"):
+            if f in validated:
+                setattr(instance, f, validated[f])
+
+        if raw_password:
+            instance.set_password(raw_password)
+
+        instance.save()
+
+        # профиль
+        profile, _ = UserProfile.objects.get_or_create(user=instance)
+        if prof_data:
+            for k, v in prof_data.items():
+                setattr(profile, k, v)
+            profile.save()
+
+        # группы/хэндлы (сетово)
+        if groups_list is not None:
+            self._apply_groups(instance, groups_list)
+        if handles_list is not None:
+            # очистим старые и поставим новые
+            for h in HandleRegistry.objects.filter(allowed_users=instance):
+                h.allowed_users.remove(instance)
+            self._apply_handles(instance, handles_list)
+
+        # email address allauth
+        self._ensure_email_address(instance, instance.email, email_verified)
+
+        return instance
 
 
 class DatasetSerializer(serializers.ModelSerializer):
