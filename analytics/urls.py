@@ -1,6 +1,7 @@
 from django.urls import path
 from rest_framework.routers import DefaultRouter
 from .views import HandleRegistryViewSet, UploadHistoryView
+from .views_egov_identity import EgovPinppLookupView
 from .views_resolve import ResolveRowsView
 from .views_dashboard_cards_rows import DashboardCardsRowsView
 from .views_ingest_upload import UploadXLSXView
@@ -18,5 +19,6 @@ urlpatterns = [
     path("upload-history/", UploadHistoryView.as_view(), name="upload-history"),
     path("ingest/upload-xlsx/", UploadXLSXView.as_view(), name="ingest-upload-xlsx"),
     path("auth/me/", CurrentUserMeView.as_view(), name="auth-me"),
+    path("egov/pinpp/", EgovPinppLookupView.as_view(), name="egov-pinpp-lookup"),
     *router.urls,
 ]

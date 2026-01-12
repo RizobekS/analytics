@@ -74,6 +74,7 @@ MIDDLEWARE = [
     'django.middleware.common.CommonMiddleware',
     'django.middleware.csrf.CsrfViewMiddleware',
     'django.contrib.auth.middleware.AuthenticationMiddleware',
+    "analytics_portal.middleware.PerUserSessionExpiryMiddleware",
     'django.contrib.messages.middleware.MessageMiddleware',
     'django.middleware.clickjacking.XFrameOptionsMiddleware',
     "allauth.account.middleware.AccountMiddleware",
@@ -149,7 +150,7 @@ SOCIALACCOUNT_PROVIDERS = {
 }
 
 EMAIL_BACKEND = "django.core.mail.backends.console.EmailBackend"
-DEFAULT_FROM_EMAIL = "no-reply@webadiko.uz"
+DEFAULT_FROM_EMAIL = "no-reply@miit.uz"
 # на проде:
 # EMAIL_BACKEND = "django.core.mail.backends.smtp.EmailBackend"
 # EMAIL_HOST = "smtp.gmail.com"
@@ -209,7 +210,15 @@ AUTH_PASSWORD_VALIDATORS = [
     },
 ]
 
-if not DEBUG:
+# --- Sessions ---
+SESSION_COOKIE_AGE = 30 * 60    # 30 минут
+SESSION_SAVE_EVERY_REQUEST = True
+SESSION_EXPIRE_AT_BROWSER_CLOSE = False
+
+
+USE_HTTPS = os.environ.get("USE_HTTPS", "0").lower() in ("1","true","yes")
+
+if not DEBUG and USE_HTTPS:
     SECURE_SSL_REDIRECT = True
     SESSION_COOKIE_SECURE = True
     CSRF_COOKIE_SECURE = True
@@ -219,6 +228,35 @@ if not DEBUG:
     X_FRAME_OPTIONS = "DENY"
     SECURE_REFERRER_POLICY = "strict-origin-when-cross-origin"
 
+ACCOUNT_DEFAULT_HTTP_PROTOCOL = "https"
+SECURE_PROXY_SSL_HEADER = ('HTTP_X_FORWARDED_PROTO', 'https')
+
+EGOV_BROKER_AUTHORIZE_URL = os.environ.get("EGOV_BROKER_AUTHORIZE_URL")
+EGOV_BROKER_REDIRECT_URL = os.environ.get("EGOV_BROKER_REDIRECT_URL")
+ONE_ID_REDIRECT_URL = os.environ.get("ONE_ID_REDIRECT_URL")
+
+EGOV_API_TOKEN_URL = os.environ.get("EGOV_API_TOKEN_URL")
+EGOV_API_BASE_URL = os.environ.get("EGOV_API_BASE_URL")
+EGOV_API_BASE_URL2 = os.environ.get("EGOV_API_BASE_URL2")
+
+EGOV_API_USERNAME = os.environ.get("EGOV_API_USERNAME")
+EGOV_API_PASSWORD = os.environ.get("EGOV_API_PASSWORD")
+EGOV_API_CONSUMER_KEY = os.environ.get("EGOV_API_CONSUMER_KEY")
+EGOV_API_CONSUMER_SECRET = os.environ.get("EGOV_API_CONSUMER_SECRET")
+
+# опционально
+EGOV_API_TIMEOUT = int(os.environ.get("EGOV_API_TIMEOUT", "20"))
+
+
+FRONTEND_AFTER_LOGIN_URL = os.environ.get(
+    "BASE_URL"
+)
+
+REST_AUTH_SERIALIZERS = {
+    "USER_DETAILS_SERIALIZER": "analytics.serializers.CurrentUserSerializer",
+}
+
+REST_AUTH_USER_DETAILS_SERIALIZER = "analytics.serializers.CurrentUserSerializer"
 
 # Internationalization
 # https://docs.djangoproject.com/en/5.2/topics/i18n/
