@@ -17,6 +17,7 @@ class EgovPinppLookupView(APIView):
     def post(self, request):
         pinpp = (request.data.get("pinpp") or "").strip()
         birth_date = (request.data.get("birth_date") or "").strip()
+        lang_id = request.data.get("langId", 1)
 
         if not pinpp:
             return Response(
@@ -35,7 +36,7 @@ class EgovPinppLookupView(APIView):
                 )
 
         try:
-            person = get_person_by_pinpp(pinpp=pinpp, birth_date=birth_date)
+            person = get_person_by_pinpp(pinpp=pinpp, birth_date=birth_date, lang_id=lang_id)
         except EgovApiError as e:
             return Response({"detail": str(e)}, status=status.HTTP_400_BAD_REQUEST)
         except Exception:

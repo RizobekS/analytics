@@ -69,7 +69,7 @@ def get_access_token() -> str:
     return access_token
 
 
-def get_person_by_pinpp(pinpp: str, birth_date: str) -> Dict[str, Any]:
+def get_person_by_pinpp(pinpp: str, birth_date: str, lang_id: int = 1) -> Dict[str, Any]:
     """
     Возвращает данные физлица (ФИО и пр.). Повторяет логику PHP:
     - POST json в EGOV_API_BASE_URL
@@ -94,6 +94,7 @@ def get_person_by_pinpp(pinpp: str, birth_date: str) -> Dict[str, Any]:
     body = {
         "transaction_id": int(time.time()),
         "is_consent": "Y",
+        "langId": int(lang_id),
         "is_photo": "N",
         "Sender": "M",
         "pinpp": pinpp,
