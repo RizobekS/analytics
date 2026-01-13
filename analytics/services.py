@@ -107,11 +107,17 @@ def get_person_by_pinpp(pinpp: str, birth_date: str, lang_id: int = 1) -> Dict[s
 
     data = resp.json()
 
-    # PHP: если result == '1' -> вернуть data
     if str(data.get("result")) == "1":
-        return data.get("data") or {}
+        payload = data.get("data")
 
-    # иначе: “Incorrect data...”
+        if isinstance(payload, list):
+            return payload[0] if payload else {}
+
+        if isinstance(payload, dict):
+            return payload
+
+        return {}
+
     raise EgovApiError("Incorrect data, enter correct pinpp and birth_date.")
 
 def birth_date_from_pinpp(pinpp: str) -> str:

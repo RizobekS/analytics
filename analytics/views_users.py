@@ -1,4 +1,5 @@
 # analytics/views_users.py
+from django.db.models import Q
 from django.contrib.auth import get_user_model
 from django.db import transaction
 from rest_framework import viewsets, permissions, status
@@ -30,10 +31,21 @@ class UserViewSet(viewsets.ModelViewSet):
 
     def get_queryset(self):
         qs = super().get_queryset()
-        q = self.request.query_params.get("q")
-        if q:
-            qs = qs.filter(username__icontains=q) | qs.filter(email__icontains=q)
-        return qs
+        q = (self.request.query_params.get("q") or "").strip()
+        if not q:
+            return qs
+
+        return qs.filter(
+            Q(username__icontains=q)
+            | Q(email__icontains=q)
+            # если профиль называется иначе — поправишь related_name
+            | Q(profile__egov_uid__icontains=q)
+            | Q(profile__pin__icontains=q)
+            | Q(profile__full_name__icontains=q)
+            | Q(profile__first_name__icontains=q)
+            | Q(profile__last_name__icontains=q)
+            | Q(profile__middle_name__icontains=q)
+        ).distinct()
 
     def perform_destroy(self, instance):
         # защитимся от удаления самого себя и последнего суперпользователя

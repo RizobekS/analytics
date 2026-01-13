@@ -42,20 +42,33 @@ class EgovPinppLookupView(APIView):
         except Exception:
             return Response({"detail": "EGOV service error"}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
 
-        full_name = person.get("full_name") or person.get("fio") or ""
-        first_name = person.get("first_name") or ""
-        last_name = person.get("sur_name") or person.get("last_name") or ""
-        middle_name = person.get("mid_name") or person.get("middle_name") or ""
-
-        return Response(
-            {
-                "pinpp": pinpp,
-                "birth_date": birth_date,
-                "full_name": full_name,
-                "first_name": first_name,
-                "last_name": last_name,
-                "middle_name": middle_name,
-                "raw": person,
-            },
-            status=status.HTTP_200_OK,
+        first_name = (
+                person.get("namelat")
+                or ""
         )
+        last_name = (
+                person.get("surnamelat")
+                or ""
+        )
+        middle_name = (
+                person.get("patronymlat")
+                or ""
+        )
+
+        full_name = " ".join([last_name, first_name, middle_name]).strip()
+
+        payload = {
+            "pinpp": pinpp,
+            "birth_date": birth_date,
+            "full_name": full_name,
+            "first_name": first_name,
+            "last_name": last_name,
+            "middle_name": middle_name,
+        }
+
+        # raw — только для отладки (иначе это утечки персональных данных)
+        debug = request.query_params.get("debug") == "1"
+        if debug:
+            payload["raw"] = person
+
+        return Response(payload, status=status.HTTP_200_OK)
