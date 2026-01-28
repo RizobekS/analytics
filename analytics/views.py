@@ -1,10 +1,11 @@
 from django.db.models import CharField, F, Window, Q
 from django.db.models.functions import Cast, RowNumber
 from django.db.models import Count
-from rest_framework import viewsets, filters, permissions
+from rest_framework import viewsets, filters, permissions, status
 from django_filters.rest_framework import DjangoFilterBackend
 from django.db.models.fields.json import KeyTextTransform
-from rest_framework.permissions import IsAuthenticated
+from rest_framework.decorators import action
+from rest_framework.permissions import IsAuthenticated, IsAdminUser
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
@@ -13,7 +14,7 @@ from .serializers import DatasetSerializer, DatasetRowSerializer, HandleRegistry
 from .views_resolve import format_client_date, parse_client_date
 
 
-class HandleRegistryViewSet(viewsets.ReadOnlyModelViewSet):
+class HandleRegistryViewSet(viewsets.ModelViewSet):
     """
     /api/handles/ — список хэндлов для сайдбара/меню.
     Поддерживает:
@@ -22,14 +23,76 @@ class HandleRegistryViewSet(viewsets.ReadOnlyModelViewSet):
       - сортировка: order_index (по умолчанию), handle
       - mine=1 — только хэндлы текущего пользователя (по allowed_users)
       - include=users — добавить allowed_user_ids в выдачу
+
+    POST /api/handles/register/ - регистрация handle (staff only)
     """
     serializer_class = HandleRegistrySerializer
     permission_classes = [permissions.IsAuthenticated]
     filter_backends = [DjangoFilterBackend, filters.SearchFilter, filters.OrderingFilter]
-    filterset_fields = ["visible", "group", "handle"]
+    filterset_fields = ["visible", "group", "handle", "table_kind"]
     search_fields = ["handle", "title"]
     ordering_fields = ["order_index", "handle", "id"]
     ordering = ["order_index", "handle"]
+
+    def get_permissions(self):
+        # чтение - всем залогиненным
+        if self.action in ("list", "retrieve"):
+            return [IsAuthenticated()]
+        # регистрация/изменения - только админам
+        return [IsAuthenticated(), IsAdminUser()]
+
+    @action(detail=False, methods=["post"], url_path="register")
+    def register(self, request):
+        """
+        payload:
+        {
+          "handle": "my_handle",
+          "title": "Моя таблица",
+          "group": "grp1",
+          "visible": true,
+          "table_kind": "legacy|v2",
+          "order_index": 1000
+        }
+        """
+        handle = (request.data.get("handle") or "").strip()
+        if not handle:
+            return Response({"detail": "handle is required"}, status=status.HTTP_400_BAD_REQUEST)
+
+        defaults = {
+            "title": (request.data.get("title") or "").strip(),
+            "group": (request.data.get("group") or "").strip(),
+            "visible": bool(request.data.get("visible", True)),
+            "table_kind": (request.data.get("table_kind") or "legacy"),
+        }
+        if request.data.get("order_index") is not None:
+            try:
+                defaults["order_index"] = int(request.data.get("order_index"))
+            except Exception:
+                return Response({"detail": "order_index must be integer"}, status=status.HTTP_400_BAD_REQUEST)
+
+        obj, created = HandleRegistry.objects.get_or_create(handle=handle, defaults=defaults)
+
+        # если уже существует — обновим переданные поля (чтобы фронт мог “донастроить”)
+        if not created:
+            changed = False
+            for k, v in defaults.items():
+                if v != "" and getattr(obj, k) != v:
+                    setattr(obj, k, v)
+                    changed = True
+            if changed:
+                obj.save()
+
+        # бонус: добавим создателя в allowed_users, чтобы он мог загружать таблицы
+        try:
+            obj.allowed_users.add(request.user)
+        except Exception:
+            pass
+
+        ser = self.get_serializer(obj)
+        return Response(
+            {"created": created, "handle": ser.data},
+            status=status.HTTP_201_CREATED if created else status.HTTP_200_OK
+        )
 
     def get_queryset(self):
         qs = HandleRegistry.objects.all()

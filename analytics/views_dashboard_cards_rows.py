@@ -264,6 +264,7 @@ class DashboardCardsRowsView(APIView):
                 "title": hr.title or hr.handle,
                 "order_index": hr.order_index,
                 "group": hr.group,
+                "table_kind": getattr(hr, "table_kind", "legacy"),
                 "period": format_client_date(period),
                 "status": ds.status,     # всегда 'approved' здесь
                 "version": ds.version,

@@ -52,6 +52,15 @@ def excel_upload_to(instance, filename):
 
 
 class HandleRegistry(models.Model):
+
+    TABLE_KIND_LEGACY = "legacy"
+    TABLE_KIND_V2 = "v2"
+
+    TABLE_KIND_CHOICES = [
+        (TABLE_KIND_LEGACY, "Legacy (старый формат)"),
+        (TABLE_KIND_V2, "V2 (новый формат)"),
+    ]
+
     allowed_users = models.ManyToManyField(settings.AUTH_USER_MODEL, blank=True, related_name="allowed_handles")
     handle = models.SlugField(max_length=64, unique=True, db_index=True)
     title = models.CharField(max_length=255, blank=True, default="")
@@ -62,6 +71,13 @@ class HandleRegistry(models.Model):
     color = models.CharField(max_length=32, blank=True, default="")
     # на будущее: хранить стили Luckysheet/оформление
     style_json = models.JSONField(default=dict, blank=True)
+
+    table_kind = models.CharField(
+        max_length=16,
+        choices=TABLE_KIND_CHOICES,
+        default=TABLE_KIND_LEGACY,
+        db_index=True,
+    )
 
     class Meta:
         ordering = ["order_index", "handle"]

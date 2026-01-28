@@ -210,6 +210,7 @@ class HandleRegistrySerializer(serializers.ModelSerializer):
             "icon",
             "color",
             "style_json",
+            "table_kind",
             # вычисляемые:
             "fullname",
             "periods",
