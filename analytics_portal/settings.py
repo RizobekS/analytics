@@ -247,6 +247,7 @@ EGOV_API_CONSUMER_SECRET = os.environ.get("EGOV_API_CONSUMER_SECRET")
 # опционально
 EGOV_API_TIMEOUT = int(os.environ.get("EGOV_API_TIMEOUT", "20"))
 
+EXTERNAL_EKSPORT_API_KEY = os.environ.get("EXTERNAL_EKSPORT_API_KEY", "")
 
 FRONTEND_AFTER_LOGIN_URL = os.environ.get(
     "BASE_URL"
