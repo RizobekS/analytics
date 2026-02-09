@@ -54,15 +54,43 @@ def format_client_date(d):
 
 def _get_workbook_for(handle: str, date_str: str | None):
     """
-    Находим workbook по handle и (опц.) дате: берём самый свежий период <= date.
+    Улучшенная логика:
+    - если date указана:
+        1) ищем самый свежий workbook с period_date <= date
+        2) если не нашли (date раньше всех) -> берём самый ранний workbook
+    - если date не указана:
+        самый свежий workbook
     """
     target_date = parse_client_date(date_str) if date_str else None
-    qs = Workbook.objects.filter(handle=handle)
-    if target_date:
-        qs = qs.filter(period_date__isnull=False, period_date__lte=target_date)
-    wb = qs.order_by("-period_date", "-id").first()
+    base = Workbook.objects.filter(handle=handle)
+
+    if not target_date:
+        wb = base.order_by("-period_date", "-id").first()
+        if not wb:
+            raise Workbook.DoesNotExist(f"No workbook for handle={handle}")
+        return wb
+
+    wb = (
+        base.filter(period_date__isnull=False, period_date__lte=target_date)
+        .order_by("-period_date", "-id")
+        .first()
+    )
+    if wb:
+        return wb
+
+    # дата раньше всех периодов -> самый ранний
+    wb = (
+        base.filter(period_date__isnull=False)
+        .order_by("period_date", "id")
+        .first()
+    )
+    if wb:
+        return wb
+
+    # если period_date вообще нигде не заполнен (крайний случай)
+    wb = base.order_by("-id").first()
     if not wb:
-        raise Workbook.DoesNotExist(f"No workbook for handle={handle}, date={date_str or 'latest'}")
+        raise Workbook.DoesNotExist(f"No workbook for handle={handle}")
     return wb
 
 def _pick_dataset_by_status(wb: Workbook, status_param: str | None):
@@ -197,28 +225,102 @@ class ResolveRowsView(APIView):
             return Response(meta)
 
         # aggregate=0 → как раньше: массив строк (или single объект)
+        # NEW: пагинация по страницам
         try:
-            limit = int(request.query_params.get("limit", 5000))
+            page = int(request.query_params.get("page", 1))
         except ValueError:
-            limit = 5000
-        limit = max(1, min(50000, limit))
+            page = 1
+        page = max(1, page)
+
+        try:
+            page_size = int(request.query_params.get("page_size", request.query_params.get("limit", 5000)))
+        except ValueError:
+            page_size = 5000
+        page_size = max(1, min(1000, page_size))  # защита
+
+        try:
+            header_rows = int(request.query_params.get("header_rows", 0))
+        except ValueError:
+            header_rows = 0
+        header_rows = max(0, min(50, header_rows))  # обычно 5-10, пусть будет до 50
+
+        # старый start_row оставляем (если нужно)
         try:
             start_row = int(request.query_params.get("start_row", 0))
         except ValueError:
             start_row = 0
 
-        qs = DatasetRow.objects.filter(dataset_id=dataset_id).order_by("id")
-        if start_row > 0:
-            qs = qs.filter(id__gte=start_row)
-        qs = qs[:limit]
-        rows = [{"id": r.id, "data": (r.data or {}), "imported_at": r.imported_at} for r in qs]
+        base_qs = DatasetRow.objects.filter(dataset_id=dataset_id).order_by("id")
 
-        if single_mode or len(rows) == 1:
-            row_obj = rows[0] if rows else {}
-            meta.update(row_obj)
+        if start_row > 0:
+            base_qs = base_qs.filter(id__gte=start_row)
+
+        total_rows = base_qs.count()
+
+        # header = первые N строк (от начала base_qs)
+        header = []
+        if header_rows > 0:
+            header = [
+                {"id": r.id, "data": (r.data or {}), "imported_at": r.imported_at}
+                for r in base_qs[:header_rows]
+            ]
+
+        # body = всё после header_rows
+        body_qs = base_qs[header_rows:]
+        body_total = max(0, total_rows - header_rows)
+
+        total_pages = max(1, (body_total + page_size - 1) // page_size)
+        if page > total_pages:
+            page = total_pages
+
+        offset = (page - 1) * page_size
+        rows_page = body_qs[offset: offset + page_size]
+
+        rows = [
+            {"id": r.id, "data": (r.data or {}), "imported_at": r.imported_at}
+            for r in rows_page
+        ]
+
+        # single=1: вернём как раньше (но можно оставить meta+header+rows, это удобнее фронту)
+        if single_mode:
+            meta.update({
+                "header": header,
+                "rows": rows,
+                "pagination": {
+                    "page": page,
+                    "page_size": page_size,
+                    "header_rows": header_rows,
+
+                    "total_rows": total_rows,   # header+body
+                    "body_rows": body_total,    # только body (после header_rows)
+
+                    "total_pages": total_pages,
+
+                    "has_next": page < total_pages,
+                    "has_prev": page > 1,
+
+                    "next_page": (page + 1) if page < total_pages else None,
+                    "prev_page": (page - 1) if page > 1 else None,
+                }
+            })
             return Response(meta)
 
-        return Response(rows)
+        # по умолчанию вернём объект с meta, header, rows (а не голый список)
+        meta.update({
+            "header": header,
+            "rows": rows,
+            "pagination": {
+                "page": page,
+                "page_size": page_size,
+                "header_rows": header_rows,
+                "total_rows": total_rows,
+                "body_rows": body_total,
+                "total_pages": total_pages,
+                "has_next": page < total_pages,
+                "has_prev": page > 1,
+            }
+        })
+        return Response(meta)
 
 
 class DatasetStatusUpdateView(APIView):
